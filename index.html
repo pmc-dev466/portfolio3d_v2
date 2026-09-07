@@ -179,10 +179,21 @@ body.debug #perfPanel{display:block}
    es el "hueco muerto" antes del título. Se recorta el recorrido a -95% y la duración
    en la misma proporción (0.746), así la VELOCIDAD de lectura no cambia y la animación
    termina justo cuando el texto sale de cuadro. */
+/* El recorrido se ata a la altura DEL PROPIO TEXTO, no a la de la ventana.
+   El -95% anterior estaba medido para un texto concreto; al reescribirlo un 20% más
+   largo dejó de valer, y en ventanas bajas (1366x700, 1280x650, 1024x600 — o sea,
+   portátiles normales) el último párrafo se quedaba dentro de la pantalla, congelado,
+   con el cartel del título cayéndole encima.
+   Con `top:0` + `translateY(-108%)` el bloque acaba SIEMPRE justo por encima del borde
+   superior, mida lo que mida: el 108% es de su propia altura, así que el recorrido
+   total es alto-de-ventana + 1.08 × alto-del-texto por construcción. El 8% de más es
+   el margen para que no quede rozando el borde.
+   El translateY va DESPUÉS del rotateX, así que se desplaza a lo largo del plano ya
+   inclinado — que es justamente cómo se aleja el texto en el crawl original. */
 #crawlScreen.on #crawlText{animation:crawl 30s linear 4.4s forwards}
 @keyframes crawl{
-  0%{top:100%;transform:rotateX(22deg) translateZ(0)}
-  100%{top:-95%;transform:rotateX(25deg) translateZ(-390px)}
+  0%{top:100%;transform:rotateX(22deg) translateZ(0) translateY(0)}
+  100%{top:0%;transform:rotateX(25deg) translateZ(-390px) translateY(-108%)}
 }
 
 /* ── Cartel de título, al terminar el crawl ──
