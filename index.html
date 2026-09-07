@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pedro Muñoz — Portfolio en 3D</title>
+<meta name="description" content="Portfolio de Pedro Muñoz, analista y desarrollador de software: un recorrido en nave por mi experiencia, stack y proyectos. Hecho con three.js.">
+<meta name="author" content="Pedro Muñoz">
+<meta name="theme-color" content="#030c14">
+<meta name="color-scheme" content="dark">
+
+<!-- Vista previa al compartir el enlace. Se omiten a propósito og:url, og:image y
+     rel=canonical: necesitan el dominio final y una imagen que todavía no existen, y
+     una etiqueta con un dominio inventado es peor que no ponerla. Ver README. -->
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Pedro Muñoz — Portfolio">
+<meta property="og:locale" content="es_ES">
+<meta property="og:title" content="Pedro Muñoz — Portfolio en 3D">
+<meta property="og:description" content="Un recorrido en nave por mi experiencia, stack y proyectos. Hecho con three.js.">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="Pedro Muñoz — Portfolio en 3D">
+<meta name="twitter:description" content="Un recorrido en nave por mi experiencia, stack y proyectos. Hecho con three.js.">
+
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%277%27 fill=%27%230a1a24%27/%3E%3Ccircle cx=%2716%27 cy=%2715%27 r=%277%27 fill=%27%23ff6b4a%27/%3E%3Cellipse cx=%2716%27 cy=%2715%27 rx=%2713%27 ry=%274.2%27 fill=%27none%27 stroke=%27%233fd8c2%27 stroke-width=%272.2%27 transform=%27rotate(-22 16 15)%27/%3E%3C/svg%3E">
+
+<link rel="stylesheet" href="fonts/fonts.css">
+<script type="importmap">
+{
+  "imports": {
+    "three": "./vendor/three/three.module.min.js",
+    "three/addons/": "./vendor/three/addons/"
+  }
+}
+</script>
+<style>
+:root{
+  --accent:#ff6b4a;--accent3:#3fd8c2;
+  --text:#edf4f2;--muted:rgba(178,205,210,.62);
+  --panel:rgba(8,20,29,.9);--border:rgba(150,190,200,.16);
+  /* Panel de secciones en claro: el fondo es una galaxia oscura, así que el texto
+     largo se lee mucho mejor invirtiendo. Los acentos están oscurecidos respecto a
+     los de la escena porque #3fd8c2 y #ff6b4a sobre blanco no llegan a contraste AA;
+     estos dan 4.8:1 y 5.1:1 sobre el fondo del panel. */
+  --panel-bg:rgba(243,247,246,.95);--panel-borde:rgba(10,32,42,.14);
+  --panel-texto:#0b1a22;--panel-suave:#4a565c;
+  --panel-acento:#0d7c6b;--panel-acento2:#b03d1c;
+  --mono:'IBM Plex Mono',monospace;--sans:'DM Sans',sans-serif;--display:'Bebas Neue',sans-serif;
+  /* News Cycle es el clon libre de News Gothic, la tipografía del crawl original.
+     DM Sans es geométrica y redondeada: no daba el pego. */
+  --crawl:'News Cycle','Franklin Gothic Medium',sans-serif;
+  /* Archivo Black para el cartel de título: es lo más pesado y geométrico que hay
+     libre. El logo real es una Helvetica Black modificada, y es propietario. */
+  --logo:'Archivo Black','Arial Black',sans-serif;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{width:100%;background:#030c14;color:var(--text);font-family:var(--sans);overflow-x:hidden}
+#stage{position:fixed;inset:0;z-index:1}
+canvas{position:fixed;inset:0;display:block}
+/* Altura del "raíl" de scroll: es lo que marca cuánto hay que rodar para avanzar por
+   la ruta. Subido de 1100vh a 2400vh → el recorrido va a menos de la mitad de
+   velocidad y las secciones quedan mucho más separadas. */
+#scrollDriver{position:relative;width:100%;height:2400vh;z-index:0}
+
+#hud{position:fixed;top:0;left:0;right:0;display:flex;justify-content:space-between;align-items:center;padding:1.6rem 2.4rem;z-index:20;pointer-events:none;font-family:var(--mono);font-size:.68rem;letter-spacing:.18em;text-transform:uppercase;color:var(--accent)}
+#hud span.dim{color:var(--muted)}
+.hudDer{display:flex;align-items:center;gap:1.1rem;pointer-events:auto}
+#muteBtn{font-family:var(--mono);font-size:.62rem;letter-spacing:.16em;text-transform:uppercase;
+  color:var(--accent3);background:none;border:1px solid var(--border);border-radius:30px;
+  padding:.4rem .9rem;cursor:pointer;transition:color .2s,border-color .2s,opacity .2s}
+#muteBtn:hover,#muteBtn:focus-visible{color:var(--accent);border-color:var(--accent);outline:none}
+#muteBtn[aria-pressed="true"]{color:var(--muted);opacity:.6}
+#zoneLabel{position:fixed;top:5.2rem;right:2.4rem;z-index:20;font-family:var(--mono);font-size:.62rem;letter-spacing:.16em;color:var(--accent3);text-transform:uppercase;opacity:.85;transition:opacity .4s}
+
+#progressTrack{position:fixed;left:2.2rem;top:14%;bottom:14%;width:2px;background:rgba(150,190,200,.18);z-index:20;pointer-events:none}
+#progressFill{position:absolute;left:0;top:0;width:100%;background:var(--accent);box-shadow:0 0 10px var(--accent);border-radius:2px}
+#waypointLabels{position:fixed;left:3.4rem;top:14%;bottom:14%;z-index:20;pointer-events:none;display:flex;flex-direction:column;justify-content:space-between}
+.wl{font-family:var(--mono);font-size:.6rem;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);transition:color .3s,transform .3s}
+.wl.active{color:var(--accent);transform:translateX(4px)}
+
+/* La ficha se lee mientras vuelas y a la distancia normal de una pantalla, así que
+   todo aquí iba un punto por debajo de lo cómodo: el cuerpo estaba a .75rem (12px).
+   Se sube el conjunto ~20%, con el ancho y el alto máximos a la par para que no se
+   convierta en una columna estrecha y larguísima. Sigue anclada abajo a la derecha,
+   así que no tapa la nave, que va centrada y algo más arriba. */
+#infoPanel{position:fixed;right:2.4rem;bottom:2.4rem;width:min(460px,38vw);max-height:62vh;overflow-y:auto;overscroll-behavior:contain;background:var(--panel-bg);color:var(--panel-texto);border:1px solid var(--panel-borde);border-radius:18px;padding:1.7rem 1.9rem;backdrop-filter:blur(20px);box-shadow:0 18px 50px rgba(0,0,0,.45);z-index:20;opacity:0;transform:translateY(14px);transition:opacity .4s,transform .4s}
+#infoPanel.on{opacity:1;transform:translateY(0)}
+.ptag{font-family:var(--mono);font-size:.72rem;letter-spacing:.16em;text-transform:uppercase;color:var(--panel-acento2);display:block;margin-bottom:.5rem}
+.ptitle{font-family:var(--display);font-size:2.4rem;letter-spacing:.01em;line-height:1;margin-bottom:.9rem;color:var(--panel-texto)}
+.tags{display:flex;flex-wrap:wrap;gap:.42rem;margin-top:.4rem}
+.tag{font-family:var(--mono);font-size:.72rem;padding:.32rem .68rem;border-radius:20px;border:1px solid rgba(13,124,107,.3);color:var(--panel-acento);background:rgba(13,124,107,.09)}
+.pi{margin-bottom:1.05rem}
+.pi:last-child{margin-bottom:0}
+.pit{font-size:1.02rem;font-weight:700;color:var(--panel-texto);line-height:1.3}
+.pis{font-size:.78rem;color:var(--panel-acento);font-family:var(--mono);margin:.22rem 0}
+.pid{font-size:.9rem;color:var(--panel-suave);line-height:1.55}
+
+#startOverlay{position:fixed;inset:0;z-index:500;background:#030c14;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1.4rem;transition:opacity 1s}
+#startOverlay.out{opacity:0;pointer-events:none}
+#startSub{font-family:var(--mono);font-size:.72rem;letter-spacing:.24em;color:var(--muted);text-transform:uppercase}
+#startTitle{font-family:var(--display);font-size:clamp(3rem,7vw,6rem);letter-spacing:.02em;text-transform:uppercase}
+#startTitle b{color:var(--accent);font-weight:400}
+#startHint{font-family:var(--mono);font-size:.64rem;letter-spacing:.16em;color:var(--muted);text-transform:uppercase;opacity:.7;margin-top:1rem}
+
+#speedHint{position:fixed;bottom:1.6rem;left:50%;transform:translateX(-50%);z-index:20;font-family:var(--mono);font-size:.6rem;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);opacity:.75;transition:opacity .4s}
+#speedHint.hide{opacity:0}
+#diveFlash{position:fixed;inset:0;z-index:15;background:radial-gradient(circle,rgba(255,255,255,.9),rgba(200,230,255,0) 70%);opacity:0;pointer-events:none}
+#assetErrors{position:fixed;bottom:1.6rem;right:2.4rem;z-index:200;font-family:var(--mono);font-size:.6rem;letter-spacing:.05em;color:#ff9a8a;background:rgba(40,10,10,.85);border:1px solid rgba(255,107,74,.4);border-radius:10px;padding:.6rem .9rem;max-width:280px;display:none}
+#assetErrors.show{display:block}
+/* Panel de calibración: sólo para depurar. Se activa con ?debug o pulsando "D". */
+#shipOrientPanel{position:fixed;bottom:1.6rem;left:2.4rem;z-index:200;font-family:var(--mono);font-size:.62rem;color:var(--text);background:rgba(8,20,29,.9);border:1px solid var(--border);border-radius:10px;padding:.7rem .9rem;flex-direction:column;gap:.4rem;display:none}
+body.debug #shipOrientPanel{display:flex}
+#shipOrientPanel .row{display:flex;align-items:center;gap:.4rem}
+#shipOrientPanel button{font-family:var(--mono);font-size:.62rem;padding:.2rem .5rem;border-radius:6px;border:1px solid var(--border);background:rgba(63,216,194,.1);color:var(--accent3);cursor:pointer}
+#shipOrientPanel button:hover{background:var(--accent3);color:#04140f}
+#shipOrientReadout{color:var(--muted);letter-spacing:.05em}
+#perfPanel{position:fixed;top:5.2rem;left:2.2rem;z-index:200;font-family:var(--mono);font-size:.62rem;line-height:1.6;color:var(--accent3);background:rgba(8,20,29,.9);border:1px solid var(--border);border-radius:10px;padding:.6rem .8rem;display:none;white-space:pre}
+body.debug #perfPanel{display:block}
+
+/* ── Intro estilo Star Wars ───────────────────────────────────────────────
+   Perspectiva CSS pura: cero coste de WebGL. La recesión sale de combinar
+   `perspective` en el contenedor con un `rotateX` fuerte en el texto, más un
+   translateZ que lo aleja; la máscara superior lo desvanece al fondo en vez de
+   cortarlo en seco contra el borde. */
+/* El crawl entra CON FUNDIDO PROPIO y por encima de la portada (z 600 > 500), en vez
+   de aparecer de golpe 900 ms después de que la portada se fuera. Antes, en esa
+   ventana no había nada tapando la escena y se veía la nave parada en la plataforma
+   sin desplegar: parecía un fallo de carga. Ahora la portada no se retira hasta que
+   este panel está ya opaco del todo, así que el 3D no llega a asomar nunca.
+   Fundido de entrada corto (.55s) y de salida largo (1.4s): entrar rápido para que no
+   se note el relevo, salir despacio para encadenar con el despegue. */
+/* Se oculta con visibility, NO con display:none. Un elemento que pasa de display:none
+   a block no tiene estilo previo del que partir, así que la transición de opacidad se
+   la salta —el clásico truco de forzar reflow funciona a veces y a veces no; es
+   justamente el problema que vino a resolver @starting-style—. Con visibility el
+   elemento está siempre maquetado, la opacidad transiciona sin sorpresas, y sigue
+   fuera del árbol de accesibilidad y sin recibir clicks mientras está oculto.
+   El retardo de 0s en `visibility` es lo que evita que desaparezca de golpe al salir:
+   se mantiene visible durante todo el fundido y sólo entonces se oculta. */
+#crawlScreen{position:fixed;inset:0;z-index:600;background:#000;overflow:hidden;
+  opacity:0;visibility:hidden;pointer-events:none;
+  transition:opacity .55s ease, visibility 0s linear .55s}
+#crawlScreen.on{opacity:1;visibility:visible;pointer-events:auto;
+  transition:opacity .55s ease, visibility 0s}
+/* `.out` va después de `.on` a propósito: misma especificidad, gana la última, que es
+   lo que permite apagarlo sin quitar `on` (las animaciones del texto cuelgan de `on`). */
+#crawlScreen.out{opacity:0;pointer-events:none;
+  transition:opacity 1.4s ease, visibility 0s linear 1.4s}
+
+#crawlIntro{position:absolute;top:34%;left:50%;transform:translate(-50%,-50%);
+  width:min(640px,86vw);text-align:center;font-family:var(--sans);
+  font-size:clamp(1rem,2.4vw,1.6rem);line-height:1.6;color:#4bd5ee;opacity:0}
+#crawlScreen.on #crawlIntro{animation:introFade 4.2s ease-in-out forwards}
+@keyframes introFade{
+  0%{opacity:0} 18%{opacity:1} 76%{opacity:1} 100%{opacity:0}
+}
+
+#crawlViewport{position:absolute;inset:0;perspective:400px;perspective-origin:50% 0%;
+  -webkit-mask-image:linear-gradient(to top,#000 0%,#000 42%,transparent 88%);
+  mask-image:linear-gradient(to top,#000 0%,#000 42%,transparent 88%)}
+/* Centrado con left/right/margin auto, NO con left:50% + margin-left negativo.
+   El margen negativo estaba mal calculado: `min(-360px,-41vw)` con valores negativos
+   devuelve el MÁS negativo, así que en una pantalla de 1920 el bloque medía 720px
+   pero se desplazaba 787px — 427px descentrado. Además así `transform` queda libre
+   para la animación, que es quien lo necesita. */
+#crawlText{position:absolute;top:100%;left:0;right:0;margin:0 auto;
+  width:min(760px,84vw);transform-origin:50% 100%;
+  font-family:var(--crawl);color:#feda4a;text-align:justify;
+  font-size:clamp(1.15rem,2.7vw,1.95rem);font-weight:700;line-height:1.6}
+#crawlText h2{font-family:var(--crawl);font-weight:700;text-align:center;
+  text-transform:uppercase;font-size:clamp(1.5rem,3.4vw,2.3rem);line-height:1.3;
+  margin-bottom:1.6em;letter-spacing:.02em}
+#crawlText h2 em{font-style:normal;display:inline-block;margin-top:.15em}
+#crawlText p{margin-bottom:1.1em}
+/* 23s era ilegible. Ahora 46s, y además se reduce el alejamiento (translateZ de -780
+   a -520) para que el texto no encoja tan rápido y se pueda leer más rato.
+   Arranca en 4.4s: justo al desvanecerse la línea azul, sin logo por medio. */
+/* Medido: con el recorrido anterior (hasta -158%) el texto dejaba de verse a los 38.7s
+   pero la animación seguía hasta los 50.4s — 12 segundos animando texto invisible, que
+   es el "hueco muerto" antes del título. Se recorta el recorrido a -95% y la duración
+   en la misma proporción (0.746), así la VELOCIDAD de lectura no cambia y la animación
+   termina justo cuando el texto sale de cuadro. */
+#crawlScreen.on #crawlText{animation:crawl 30s linear 4.4s forwards}
+@keyframes crawl{
+  0%{top:100%;transform:rotateX(22deg) translateZ(0)}
+  100%{top:-95%;transform:rotateX(25deg) translateZ(-390px)}
+}
+
+/* ── Cartel de título, al terminar el crawl ──
+   Letras negras con contorno amarillo: sobre fondo negro se ve sólo el contorno, que
+   es el tratamiento del logo original. Si el navegador no soporta -webkit-text-stroke
+   (muy raro ya), degrada a amarillo macizo, que también funciona. */
+#crawlTitle{position:absolute;top:50%;left:0;right:0;z-index:3;
+  display:flex;flex-direction:column;align-items:center;gap:.02em;
+  font-family:var(--logo);color:#feda4a;text-align:center;
+  line-height:.92;letter-spacing:-.01em;opacity:0;
+  transform:translateY(-50%) scale(.12)}
+@supports ((-webkit-text-stroke:1px #000) or (text-stroke:1px #000)){
+  #crawlTitle .ct1,#crawlTitle .ct2{color:#050505;-webkit-text-stroke:2.5px #feda4a;text-stroke:2.5px #feda4a}
+}
+/* Tamaños calculados, no a ojo. Medido en Archivo Black: "PORTFOLIO" ocupa 6.42x su
+   font-size y "CONTRAATACA" 8.38x. Con 12.4vw y 9.5vw las DOS líneas salen al mismo
+   ancho (~80% de la ventana), que es como se apilan STAR y WARS en el logo original. */
+#crawlTitle .ct1{font-size:clamp(2.2rem,12.4vw,11rem)}
+#crawlTitle .ct2{font-size:clamp(1.7rem,9.5vw,8.5rem)}
+#crawlTitle .ct3{font-family:var(--mono);font-size:clamp(.6rem,1.3vw,.82rem);
+  letter-spacing:.34em;text-transform:uppercase;color:rgba(254,218,74,.62);
+  margin-top:1.6em;-webkit-text-stroke:0}
+/* Entra a los 33.4s, un segundo ANTES de que acabe el crawl (34.4s), para solaparse.
+   Cuándo se vacía el texto depende de la altura de la ventana —la máscara lo desvanece
+   antes de llegar arriba—, así que un retardo ajustado al milímetro sólo funcionaría en
+   una pantalla concreta. Solapando, no hay hueco negro en ninguna.
+   Y entra rápido: escala inicial 0.4 (no 0.12) y a tamaño completo en 0.7s. */
+/* 3.6s en vez de 5.5s, y la entrada más seca: a tamaño completo en 0.29s (8% de 3.6)
+   en lugar de 0.72s, arrancando desde escala 0.62 en vez de 0.4 — hay menos recorrido
+   que hacer, así que se planta antes. */
+#crawlScreen.on #crawlTitle{animation:tituloCarta 3.6s cubic-bezier(.16,.9,.3,1) 33.4s forwards}
+@keyframes tituloCarta{
+  0%{opacity:0;transform:translateY(-50%) scale(.62)}
+  5%{opacity:1}
+  8%{opacity:1;transform:translateY(-50%) scale(1)}
+  78%{opacity:1;transform:translateY(-50%) scale(1)}
+  100%{opacity:0;transform:translateY(-50%) scale(1.04)}
+}
+
+#skipCrawl{position:absolute;bottom:2rem;right:2.2rem;z-index:2;
+  font-family:var(--mono);font-size:.62rem;letter-spacing:.18em;text-transform:uppercase;
+  color:rgba(255,255,255,.45);background:none;border:1px solid rgba(255,255,255,.22);
+  border-radius:30px;padding:.6rem 1.3rem;cursor:pointer;transition:color .25s,border-color .25s}
+#skipCrawl:hover,#skipCrawl:focus-visible{color:#feda4a;border-color:#feda4a;outline:none}
+
+/* Quien no quiera animación no debería tragarse 28s de scroll automático */
+@media(prefers-reduced-motion:reduce){
+  #crawlScreen.on #crawlIntro,#crawlScreen.on #crawlText,
+  #crawlScreen.on #crawlTitle{animation:none}
+  #crawlText{top:8%;transform:none}
+  #crawlTitle{display:none}
+}
+
+/* ── Panel final: aparece cuando la nave se posa ── */
+#finalPanel{position:fixed;left:50%;bottom:8vh;transform:translate(-50%,20px);z-index:60;
+  width:min(560px,88vw);background:var(--panel-bg);color:var(--panel-texto);
+  border:1px solid var(--panel-borde);border-radius:20px;padding:2rem 2.2rem;
+  backdrop-filter:blur(20px);box-shadow:0 24px 70px rgba(0,0,0,.55);
+  text-align:center;opacity:0;pointer-events:none;transition:opacity .8s,transform .8s}
+#finalPanel.on{opacity:1;transform:translate(-50%,0);pointer-events:auto}
+#finalPanel .fsub{font-family:var(--mono);font-size:.62rem;letter-spacing:.24em;text-transform:uppercase;color:var(--panel-acento2);margin-bottom:.5rem}
+#finalPanel .ftitle{font-family:var(--display);font-size:clamp(2.2rem,5vw,3.2rem);line-height:1;letter-spacing:.02em;margin-bottom:.7rem}
+#finalPanel .fdesc{font-size:.86rem;line-height:1.55;color:var(--panel-suave);max-width:42ch;margin:0 auto 1.5rem}
+.flinks{display:flex;flex-wrap:wrap;gap:.7rem;justify-content:center}
+.flink{font-family:var(--mono);font-size:.72rem;letter-spacing:.12em;text-transform:uppercase;
+  text-decoration:none;color:var(--panel-acento);border:1.5px solid var(--panel-acento);
+  border-radius:40px;padding:.7rem 1.5rem;transition:background .25s,color .25s}
+.flink:hover,.flink:focus-visible{background:var(--panel-acento);color:#f3f7f6;outline:none}
+#restartBtn{margin-top:1.5rem;font-family:var(--mono);font-size:.62rem;letter-spacing:.16em;
+  text-transform:uppercase;color:var(--panel-suave);background:none;border:none;
+  border-bottom:1px solid var(--panel-borde);padding:.3rem .1rem;cursor:pointer}
+#restartBtn:hover{color:var(--panel-texto)}
+@media(max-width:820px){ #finalPanel{padding:1.5rem 1.2rem;bottom:5vh} }
+
+/* ── Secuencia de despegue ── */
+#startOverlay{cursor:pointer}
+#startBtn{margin-top:.6rem;font-family:var(--mono);font-size:.66rem;letter-spacing:.28em;text-transform:uppercase;color:var(--accent);border:1px solid var(--accent);border-radius:40px;padding:.75rem 2.1rem;background:rgba(255,107,74,.06);transition:background .3s,color .3s}
+#startOverlay:hover #startBtn{background:var(--accent);color:#0b0500}
+/* Mientras se descargan los modelos el botón no invita a pulsar */
+#startBtn.loading{color:var(--muted);border-color:var(--border);background:none}
+#startOverlay:hover #startBtn.loading{background:none;color:var(--muted)}
+/* Los dos botones de entrada. El de sonido va destacado porque es la experiencia
+   completa, pero el de silencio queda igual de accesible: no es una trampa. */
+#startOpciones{display:flex;gap:.8rem;flex-wrap:wrap;justify-content:center;margin-top:.4rem}
+#startOpciones[hidden]{display:none}
+#startOpciones button{font-family:var(--mono);font-size:.66rem;letter-spacing:.2em;
+  text-transform:uppercase;border-radius:40px;padding:.75rem 1.7rem;cursor:pointer;
+  transition:background .25s,color .25s,border-color .25s}
+#btnConSonido{color:#0b0500;background:var(--accent);border:1px solid var(--accent)}
+#btnConSonido:hover,#btnConSonido:focus-visible{background:#ff8663;border-color:#ff8663;outline:none}
+#btnSinSonido{color:var(--muted);background:none;border:1px solid var(--border)}
+#btnSinSonido:hover,#btnSinSonido:focus-visible{color:var(--text);border-color:var(--text);outline:none}
+#launchStatus{position:fixed;left:50%;bottom:3.6rem;transform:translateX(-50%);z-index:30;font-family:var(--mono);font-size:.64rem;letter-spacing:.3em;text-transform:uppercase;color:var(--accent);text-shadow:0 0 14px rgba(255,107,74,.6);opacity:0;transition:opacity .4s;pointer-events:none;white-space:nowrap}
+#launchStatus.on{opacity:1}
+#rumble{position:fixed;inset:0;z-index:14;pointer-events:none;opacity:0;box-shadow:inset 0 0 11vw rgba(255,107,74,.38)}
+
+/* ── Responsive ── */
+@media(max-width:820px){
+  #infoPanel{right:1rem;left:1rem;bottom:1rem;width:auto;max-height:46vh;padding:1.3rem 1.4rem}
+  .ptitle{font-size:1.9rem}
+  #progressTrack,#waypointLabels{display:none}
+  #hud{padding:1rem 1.1rem;font-size:.6rem}
+  #zoneLabel{top:3.4rem;right:1.1rem}
+  #speedHint{font-size:.55rem;width:90%;text-align:center}
+}
+@media(prefers-reduced-motion:reduce){
+  #diveFlash,#rumble{display:none}
+}
+
+/* Aviso para navegadores sin WebGL. Lo inserta app.js y aborta ahí la carga. */
+#sinWebgl{position:fixed;inset:0;z-index:900;background:#030c14;color:var(--text);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:1rem;padding:2rem;text-align:center;font-family:var(--sans)}
+#sinWebgl h1{font-family:var(--display);font-size:clamp(1.8rem,5vw,3rem);
+  letter-spacing:.02em;text-transform:uppercase;color:var(--accent)}
+#sinWebgl p{max-width:46ch;line-height:1.6;color:var(--muted);font-size:.95rem}
+#sinWebgl .sw-sub{font-family:var(--mono);font-size:.72rem;letter-spacing:.12em;
+  text-transform:uppercase;opacity:.7}
+</style>
+</head>
+<body>
+
+<!-- ── Intro estilo Star Wars ────────────────────────────────────────────────
+     Todo CSS 3D: coste cero de WebGL. Se salta con click, tecla o rueda. -->
+<div id="crawlScreen" aria-hidden="true">
+  <p id="crawlIntro">Hace no tanto tiempo, en una oficina<br>no muy lejana....</p>
+
+  <div id="crawlViewport">
+    <div id="crawlText">
+      <h2>Episodio IV<br><em>El legado heredado</em></h2>
+      <p>Es una época de migraciones. Los sistemas de la ADMINISTRACIÓN llevan
+      años acumulando deuda técnica sobre versiones de Java que ya nadie se
+      atreve a tocar.</p>
+
+      <p>Desde iConsulting365, un analista lidera la modernización de los
+      servicios de la JUNTA DE ANDALUCÍA, arrastrando proyectos enteros de
+      Java 8 a Java 21 sin detener la producción ni un solo día.</p>
+
+      <p>Armado con arquitectura hexagonal y microservicios, se adentra ahora
+      en territorio inexplorado, allí donde los sistemas heredados todavía
+      resisten al cambio....</p>
+    </div>
+  </div>
+
+  <!-- Cartel de título, al terminar el crawl -->
+  <div id="crawlTitle">
+    <span class="ct1">PORTFOLIO</span>
+    <span class="ct2">CONTRAATACA</span>
+    <span class="ct3">Pedro Muñoz · Software Engineer</span>
+  </div>
+
+  <button id="skipCrawl" type="button">Saltar intro</button>
+</div>
+
+<div id="startOverlay">
+  <p id="startSub">Software Engineer · Backend &amp; Análisis</p>
+  <h1 id="startTitle">Pedro <b>Muñoz</b></h1>
+  <div id="startBtn" class="loading">Cargando <span id="loadPct">0%</span></div>
+  <!-- Elección explícita de sonido al entrar. Cualquiera de los dos arranca el
+       recorrido; el de la izquierda además activa el audio. -->
+  <div id="startOpciones" hidden>
+    <button id="btnConSonido" type="button">▶ Con sonido</button>
+    <button id="btnSinSonido" type="button">Entrar en silencio</button>
+  </div>
+  <p id="startHint">Preparando el hangar…</p>
+</div>
+
+<div id="hud">
+  <span>PEDRO MUÑOZ · <span class="dim">Recorrido</span></span>
+  <span class="hudDer">
+    <button id="muteBtn" type="button" aria-pressed="false" title="Silenciar (M)">♪ Sonido</button>
+    <span class="dim" id="hudPct">000%</span>
+  </span>
+</div>
+<div id="zoneLabel"></div>
+
+<div id="progressTrack"><div id="progressFill"></div></div>
+<div id="waypointLabels"></div>
+<div id="infoPanel"><div id="panelBody"></div></div>
+
+<!-- Panel final. OJO: los enlaces son marcadores de posición, hay que sustituirlos
+     por los reales antes de publicar. -->
+<div id="finalPanel">
+  <p class="fsub">Fin del recorrido</p>
+  <h2 class="ftitle">Hablamos</h2>
+  <p class="fdesc">Backend, análisis y modernización de sistemas. Si encaja con lo que buscas, escríbeme.</p>
+  <div class="flinks">
+    <a class="flink" href="https://www.linkedin.com/in/pejemuci/" target="_blank" rel="noopener noreferrer" aria-label="Perfil de LinkedIn de Pedro Muñoz (se abre en una pestaña nueva)">LinkedIn</a>
+    <a class="flink" href="https://github.com/pmc-dev466" target="_blank" rel="noopener noreferrer" aria-label="Perfil de GitHub de Pedro Muñoz (se abre en una pestaña nueva)">GitHub</a>
+    <a class="flink" href="mailto:pejemuci@hotmail.com" aria-label="Escribir un correo a Pedro Muñoz">Email</a>
+  </div>
+  <button id="restartBtn" type="button">Repetir recorrido</button>
+</div>
+<div id="speedHint">Scroll para avanzar · Mueve el ratón para pilotar</div>
+<div id="launchStatus"></div>
+<div id="rumble"></div>
+<div id="diveFlash"></div>
+<div id="assetErrors"></div>
+<div id="perfPanel"></div>
+<div id="shipOrientPanel">
+  <span>Orientación nave — <span id="shipOrientReadout">X:0° Y:0° Z:0°</span></span>
+  <div class="row">X: <button data-axis="x" data-dir="-1">-90°</button><button data-axis="x" data-dir="1">+90°</button></div>
+  <div class="row">Y: <button data-axis="y" data-dir="-1">-90°</button><button data-axis="y" data-dir="1">+90°</button></div>
+  <div class="row">Z: <button data-axis="z" data-dir="-1">-90°</button><button data-axis="z" data-dir="1">+90°</button></div>
+</div>
+
+<div id="stage"></div>
+<div id="scrollDriver"></div>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>

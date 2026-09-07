@@ -1,0 +1,35 @@
+# ── Herramientas locales ──────────────────────────────────────────────────────
+# Estado de utilidades de mi entorno: no forma parte del proyecto y no le sirve a
+# nadie que clone el repositorio.
+.claude/
+.remember/
+
+# ── Dependencias ──────────────────────────────────────────────────────────────
+# El proyecto NO tiene dependencias en tiempo de ejecución (three.js va vendorizado
+# en vendor/three/, que SÍ se versiona a propósito). Esta regla existe sólo por si
+# algún día se añade herramienta de desarrollo.
+node_modules/
+package-lock.json
+
+# ── Restos de trabajo ─────────────────────────────────────────────────────────
+*.bak
+*.orig
+*.rej
+_*.html          # páginas de prueba y visores temporales
+/shots/
+/tmp/
+
+# ── Sistema operativo y editores ──────────────────────────────────────────────
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*~
+
+# ── Registros ─────────────────────────────────────────────────────────────────
+*.log
+npm-debug.log*

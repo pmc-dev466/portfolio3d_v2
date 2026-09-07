@@ -1,0 +1,17 @@
+{
+  "name": "portfolio3d",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Portfolio personal en 3D: un recorrido en nave por secciones-planeta, hecho con three.js.",
+  "author": "Pedro Muñoz",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/pmc-dev466/portfolio3d_v2.git"
+  },
+  "keywords": ["portfolio", "threejs", "webgl", "3d"],
+  "scripts": {
+    "dev": "node dev-server.mjs"
+  }
+}
