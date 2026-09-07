@@ -130,7 +130,7 @@ function activarSombras(obj){
 // ── Contenido real ──
 const WAYPOINTS = [
   { tag:'01 · Experiencia', title:'Experiencia', accentHex:0xff6b4a, t:0.06,
-    stats:[{n:'3+',l:'años en backend'},{n:'25+',l:'tecnologías'},{n:'8→21',l:'modernización Java'}],
+    stats:[{n:'3+',l:'años desarrollando'},{n:'2025',l:'paso a análisis técnico'},{n:'Scrum',l:'y Kanban'}],
     items:[
       {t:'Analista de Software', s:'iConsulting365 · 06/2025–Actual', d:'Análisis de OTs, requisitos, estimaciones, code reviews y liderazgo técnico.'},
       {t:'Desarrollador de Software', s:'iConsulting365 · 10/2022–06/2025', d:'Backend Java 21 + Spring Boot para sistemas de la Junta de Andalucía.'}
@@ -140,7 +140,7 @@ const WAYPOINTS = [
   { tag:'03 · Proyectos', title:'Proyectos', accentHex:0x56b8ff, t:0.40,
     items:[
       {t:'Sistemas Junta de Andalucía', s:'Java 21 · Spring Boot · Microservicios', d:'APIs REST consumidas por frontends Angular, comunicación sync/async.'},
-      {t:'Modernización legacy 8→21', s:'Refactor · Rendimiento', d:'Migración de proyectos legacy mejorando rendimiento y mantenibilidad.'}
+      {t:'Análisis y especificación técnica', s:'Requisitos · Estimaciones · Casos de uso', d:'Evaluación de órdenes de trabajo: viabilidad, impacto en los sistemas existentes y esfuerzo, hasta dejar la especificación que el equipo ejecuta.'}
     ]},
   // Contacto ya no es un planeta-hito: ahora es el final del recorrido, cuando la nave
   // aterriza. Tener la llamada a la acción de pasada, a mitad de vuelo, la desperdiciaba.
