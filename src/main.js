@@ -7,6 +7,8 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 // Las fuentes se importan desde aquí y no con un <link> en el HTML: así Vite las
 // empaqueta con hash en el nombre y se pueden cachear un año sin riesgo.
 import './fonts/fonts.css';
+// Fuente píxel de la pantalla de título. Sólo el subconjunto latino (ñ, tildes): unos KB.
+import '@fontsource/press-start-2p/latin-400.css';
 import { createRouteInput } from './input.js';
 import { createDirector } from './director.js';
 import { guionCombate, guionAgujero } from './guiones.js';
@@ -299,6 +301,39 @@ if(Q.sombras){
   sun.shadow.camera.near = 1;  sun.shadow.camera.far    = 160;
   sun.shadow.bias = -0.0007;      // evita el acné de sombra en superficies planas
   sun.shadow.normalBias = 0.03;   // evita el "peter-panning" en geometría fina
+}
+
+// Resolución relativa del render (1 = normal). En la portada la escena se dibuja a unas
+// 190 filas y se escala sin suavizar: píxel gordo de verdad, con la escena real detrás.
+let factorRes = 1;
+const FILAS_TITULO = 190;
+// Con la ventana a 0 de alto (pestaña oculta al cargar) la división daba infinito y el
+// factor se quedaba en 1: la portada salía nítida. Se acota por los dos lados.
+const factorTitulo = ()=> innerHeight > 0
+  ? Math.min(1, FILAS_TITULO / (innerHeight * Math.min(devicePixelRatio, Q.maxDpr))) : 0.25;
+function aplicarResolucion(f){
+  factorRes = f;
+  const pr = Math.min(devicePixelRatio, Q.maxDpr) * f;
+  renderer.setPixelRatio(pr);
+  renderer.setSize(innerWidth, innerHeight);
+  if(composer){ composer.setPixelRatio(pr); composer.setSize(innerWidth, innerHeight); }
+  renderer.domElement.classList.toggle('pixel', f < 1);
+}
+// "Enfoque" al terminar la intro: la resolución sube A SALTOS, no de forma continua, como
+// el mosaico de las transiciones de 16 bits. Cada salto cuesta un redimensionado, así
+// que son pocos y sólo ocurren una vez.
+const enfoque = { activo:false, t:0, desde:1, pasos:6, dur:1.1, ultimo:-1 };
+function iniciarEnfoque(){ Object.assign(enfoque, { activo:true, t:0, desde:factorRes, ultimo:-1 }); }
+function actualizarEnfoque(dtReal){
+  if(!enfoque.activo) return;
+  enfoque.t += dtReal;
+  const paso = Math.min(enfoque.pasos, Math.floor(enfoque.t / enfoque.dur * enfoque.pasos) + 1);
+  if(paso !== enfoque.ultimo){
+    enfoque.ultimo = paso;
+    // Progresión geométrica: cada salto duplica más o menos la resolución.
+    aplicarResolucion(paso >= enfoque.pasos ? 1 : enfoque.desde * Math.pow(1/enfoque.desde, paso/enfoque.pasos));
+  }
+  if(paso >= enfoque.pasos) enfoque.activo = false;
 }
 
 const BLOOM = { fuerza: 0.5, radio: 0.4, umbral: 0.95 };
@@ -2085,22 +2120,19 @@ let lastCue = null;
 // Con los .glb incrustados estaban listos al instante. Ahora vienen por red, así que
 // hay que impedir el despegue hasta tenerlos: si no, la nave arrancaría sin modelo.
 let assetsReady = false;
-const startBtn = document.getElementById('startBtn');
-const startHint = document.getElementById('startHint');
 const loadPct = document.getElementById('loadPct');
-const startOpciones = document.getElementById('startOpciones');
-const btnConSonido = document.getElementById('btnConSonido');
-const btnSinSonido = document.getElementById('btnSinSonido');
+const tiPulsa = document.getElementById('tiPulsa');
+const tiSonido = document.getElementById('tiSonido');
+// Se lee aquí y no se reutiliza `esTactil` (declarada más abajo): usarla antes de su
+// declaración rompería por la zona muerta temporal.
+const TEXTO_PULSA = matchMedia('(pointer: coarse)').matches ? 'Toca para continuar' : 'Pulsa K para continuar';
 loadManager.onProgress = (_url, cargados, total)=>{
   if(loadPct) loadPct.textContent = Math.round((cargados/total)*100) + '%';
 };
 loadManager.onLoad = ()=>{
   assetsReady = true;
-  // El botón de carga desaparece y deja paso a la elección de sonido: entrar es
-  // ahora una decisión consciente sobre el audio, no un click a ciegas.
-  startBtn.style.display = 'none';
-  startOpciones.hidden = false;
-  startHint.textContent = 'El sonido se puede cambiar en cualquier momento con la tecla M';
+  tiPulsa.classList.remove('cargando');
+  tiPulsa.textContent = TEXTO_PULSA;
 };
 loadManager.onError = url=>{
   assetError(`⚠ Falló <b>${url.split('/').pop()}</b>`);
@@ -2144,6 +2176,7 @@ function terminarIntro(){
   if(!crawlScreen.classList.contains('on') || crawlScreen.classList.contains('out')) return;
   clearTimeout(crawlTimer);
   quitarOyentesIntro();
+  iniciarEnfoque();   // mientras el crawl se funde, la escena pasa de píxel a nítida
   // `.out` gana a `.on` por orden en la hoja, así que apaga el panel sin quitar `on`
   // (las animaciones del texto cuelgan de `on` y quitarlo las cortaría de golpe).
   crawlScreen.classList.add('out');
@@ -2170,6 +2203,10 @@ function reproducirIntro(){
 const muteBtn = document.getElementById('muteBtn');
 function pintarMute(){
   const s = SND.silenciado;
+  if(tiSonido){
+    tiSonido.innerHTML = 'M · Sonido: <b>' + (s ? 'No' : 'Sí') + '</b>';
+    tiSonido.setAttribute('aria-pressed', s ? 'false' : 'true');
+  }
   muteBtn.textContent = s ? '♪ Silencio' : '♪ Sonido';
   muteBtn.setAttribute('aria-pressed', s ? 'true' : 'false');
 }
@@ -2177,29 +2214,39 @@ pintarMute();
 muteBtn.addEventListener('click', e=>{ e.stopPropagation(); SND.alternarSilencio(); pintarMute(); });
 addEventListener('keydown', e=>{ if(e.key === 'm' || e.key === 'M'){ SND.alternarSilencio(); pintarMute(); } });
 
-function startExperience(conSonido){
+// El sonido se decide en la propia portada (M o el botón de abajo); aquí sólo se arranca
+// con lo que haya elegido. Sigue empezando en silencio.
+function startExperience(){
   if(arrancado || !assetsReady) return;
   arrancado = true;
-  SND.init();          // el gesto de este click es lo que desbloquea el audio
-  if(conSonido && SND.silenciado){ SND.alternarSilencio(); pintarMute(); }
+  SND.init();          // el gesto de este click/tecla es lo que desbloquea el audio
   SND.arranque();      // confirmación sonora de que la experiencia empieza
-  // ORDEN IMPORTANTE. Antes era: fundir la portada (1s) y arrancar la intro a los
-  // 900ms. Entre medias no había NADA tapando el lienzo, así que durante casi un
-  // segundo se veía la nave quieta en la plataforma, sin desplegar — parecía un error.
-  // Ahora el crawl (negro, z 600) entra ENCIMA de la portada, que sigue opaca debajo:
-  // como los dos fondos son negros, el relevo se lee como que el título se apaga. La
-  // portada no se retira hasta que el crawl ya cubre del todo.
+  // Parpadeo rápido de confirmación (el "start" de los juegos) antes de la intro.
+  tiPulsa.classList.add('pulsado');
+  setTimeout(arrancarIntro, 650);
+}
+function arrancarIntro(){
+  tiPulsa.classList.remove('pulsado');
+  // El crawl (negro opaco, z 600) entra con fundido ENCIMA de la portada y de la escena
+  // pixelada: se lee como un fundido a negro. La portada no se retira hasta que el crawl
+  // ya cubre del todo, así que nunca asoma la nave parada sin pixelar.
   reproducirIntro();
   setTimeout(()=>{
     startOverlay.classList.add('out');
     startOverlay.style.display = 'none';
+    document.body.classList.remove('en-portada');
   }, 620);            // 550ms de fundido del crawl + margen
 }
-// Los dos botones son la única forma de entrar: así la elección de sonido es
-// explícita. Antes valía cualquier click, rueda o tecla, lo que hacía imposible
-// preguntar nada. stopPropagation para que el click no cuente dos veces.
-btnConSonido.addEventListener('click', e=>{ e.stopPropagation(); startExperience(true); });
-btnSinSonido.addEventListener('click', e=>{ e.stopPropagation(); startExperience(false); });
+// Entrar: K (el guiño a los LEGO de PC), Enter o espacio, o un click/toque en la portada.
+// El botón de sonido para el click en seco: si no, cambiar el sonido arrancaría la intro.
+tiSonido.addEventListener('click', e=>{ e.stopPropagation(); SND.alternarSilencio(); pintarMute(); });
+startOverlay.addEventListener('click', ()=> startExperience());
+addEventListener('keydown', e=>{
+  if(mode !== 'idle' || arrancado || startOverlay.style.display === 'none') return;
+  if(e.key === 'k' || e.key === 'K' || e.key === 'Enter' || (e.key === ' ' && e.target === document.body)){
+    e.preventDefault(); startExperience();
+  }
+});
 
 function finishLaunch(){
   mode = 'free';
@@ -2645,7 +2692,9 @@ function reiniciarRecorrido(){
   finalPanel.classList.remove('on');
   setActiveWaypoint(-1);
   startOverlay.style.display = '';
-  startOpciones.hidden = false;      // la elección de sonido vuelve a estar disponible
+  tiPulsa.textContent = TEXTO_PULSA;
+  aplicarResolucion(factorTitulo()); // la portada vuelve a verse en píxeles
+  document.body.classList.add('en-portada');
   void startOverlay.offsetWidth;     // fuerza reflow: sin esto la transición no rearranca
   startOverlay.classList.remove('out');
   routeInput.reset();
@@ -2752,6 +2801,9 @@ function launchEase(x){
   return u*u*u*(u*(u*6 - 15) + 10);
 }
 
+// Cámara de la pantalla de título, relativa a la nave posada en la plataforma.
+const TITULO_CAM = { radio: 7.5, altura: 1.4, angulo: 0.75, vaiven: 0.45, mira: 0.55 };
+
 let paused = false;
 document.addEventListener('visibilitychange', ()=>{
   paused = document.hidden;
@@ -2779,6 +2831,7 @@ function animate(){
 // Un fotograma completo: simulación + dibujo. Separado de animate() para poder avanzarlo
 // a mano con un dt fijo (herramienta de desarrollo de abajo).
 function frame(dtReal){
+  actualizarEnfoque(dtReal);
   // Rampa muy corta (~0.1 s): la cámara lenta debe entrar de golpe con el corte, pero
   // sin un escalón de un frame que se percibe como un tirón.
   escalaTiempo += ((director.activo ? director.escalaTiempo : 1) - escalaTiempo) * smoothK(0.35, dtReal);
@@ -2949,6 +3002,15 @@ function frame(dtReal){
       THREE.MathUtils.lerp(11.0, 4.4, e)
     ).add(_p);
     _lookA.copy(_p);
+    if(mode === 'idle'){
+      // Pose PROPIA de la portada: más alta que la del despegue (allí el borde de la
+      // plataforma tapaba la nave) y meciéndose despacio a su alrededor, el "modo demo"
+      // de las pantallas de título. El salto a la pose del despegue ocurre bajo el
+      // fundido a negro de la intro, así que no se ve.
+      const a = TITULO_CAM.angulo + Math.sin(gt*0.16) * TITULO_CAM.vaiven;
+      _camA.set(Math.sin(a)*TITULO_CAM.radio, TITULO_CAM.altura, Math.cos(a)*TITULO_CAM.radio).add(_p);
+      _lookA.copy(_p).addScaledVector(UP, TITULO_CAM.mira);
+    }
 
     // Relevo hacia la pose de scroll. Ventana ampliada del último 22% al último 42%
     // (de 1.5s a casi 3s): posición, punto de mira y orientación se mezclan a la vez
@@ -3520,6 +3582,7 @@ function frame(dtReal){
   }
 }
 
+aplicarResolucion(factorTitulo());
 animate();
 
 // ── Herramienta de desarrollo ──
@@ -3538,13 +3601,15 @@ if(import.meta.env.DEV){
     // encima de su punto de inicio las dispara y la captura sale a mitad de escena.
     volarA(t, { cines = false } = {}){
       startOverlay.style.display = 'none';
+      document.body.classList.remove('en-portada');
+      if(factorRes < 1) aplicarResolucion(1);
       if(mode === 'cine'){ limpiarCombate(); director.end(); cineIdx = -1; }
       mode = 'free'; progress = targetProgress = t;
       // Con cines:true sólo queda pendiente la escena que empieza en t; las anteriores
       // se dan por vistas (si no, saltar al agujero dispararía antes el combate).
       CINEMATICAS.forEach(c=> c.hecha = cines ? c.t < t - 0.01 : c.t <= t + 0.01);
     },
-    sun, get bloomPass(){ return bloomPass; }, director, ctxCombate, ctxAgujero, enemigos, CINEMATICAS,
+    sun, get bloomPass(){ return bloomPass; }, aplicarResolucion, factorTitulo, TITULO_CAM, director, ctxCombate, ctxAgujero, enemigos, CINEMATICAS,
     avanzar(seg, paso = 1/60){ for(let s=0; s<seg; s+=paso) frame(paso); },
     captura(tipo = 'image/jpeg'){ dibujar(); return renderer.domElement.toDataURL(tipo, 0.88); },
   };
@@ -3555,8 +3620,9 @@ if(import.meta.env.DEV){
 addEventListener('resize', ()=>{
   camera.aspect = innerWidth/innerHeight;
   camera.updateProjectionMatrix();
-  renderer.setPixelRatio(Math.min(devicePixelRatio, Q.maxDpr)); // al mover la ventana
-  renderer.setSize(innerWidth, innerHeight);                    // entre pantallas el
-  if(composer){ composer.setPixelRatio(renderer.getPixelRatio()); composer.setSize(innerWidth, innerHeight); }
+  // Respeta el modo píxel de la portada (y recalcula su factor: depende del alto).
+  // Se decide por el ESTADO (¿seguimos en la portada?), no por el factor anterior: si
+  // éste se hubiera calculado mal una vez, se arrastraría para siempre.
+  aplicarResolucion(enfoque.activo ? factorRes : (mode === 'idle' ? factorTitulo() : 1));
   if(bloomPass) bloomPass.resolution.set(innerWidth, innerHeight);
 });
