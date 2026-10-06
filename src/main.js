@@ -38,8 +38,8 @@ const esMovil = matchMedia('(max-width: 820px), (pointer: coarse)').matches;
 const nivelPedido = new URLSearchParams(location.search).get('q');
 const NIVEL = ['alta','media','baja'].includes(nivelPedido) ? nivelPedido : (esMovil ? 'baja' : 'alta');
 const PRESETS = {
-  alta:  { maxDpr:1.8, sombras:true,  mapaSombra:2048, bloom:false, rocas:[60,18], polvo:900, fugaces:20, trafico:8 },
-  media: { maxDpr:1.5, sombras:true,  mapaSombra:1024, bloom:false, rocas:[40,12], polvo:550, fugaces:14, trafico:5 },
+  alta:  { maxDpr:1.8, sombras:true,  mapaSombra:2048, bloom:true,  rocas:[60,18], polvo:900, fugaces:20, trafico:8 },
+  media: { maxDpr:1.5, sombras:true,  mapaSombra:1024, bloom:true,  rocas:[40,12], polvo:550, fugaces:14, trafico:5 },
   baja:  { maxDpr:1.0, sombras:false, mapaSombra:512,  bloom:false, rocas:[24, 8], polvo:320, fugaces:8,  trafico:3 },
 };
 const Q = PRESETS[NIVEL];
@@ -252,9 +252,9 @@ const renderer = new THREE.WebGLRenderer({antialias:true, powerPreference:'high-
 renderer.setPixelRatio(Math.min(devicePixelRatio, Q.maxDpr));
 renderer.setSize(innerWidth, innerHeight);
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-// Exposición algo más alta que antes: sin bloom se pierde el "derrame" de luz que
-// levantaba la imagen, así que se compensa en el tone mapping.
-renderer.toneMappingExposure = 1.25;
+// 1.25 compensaba la falta de bloom. Con bloom esa compensación sobra y lavaba los
+// colores claros del kit (el planeta del picado salía casi pastel).
+renderer.toneMappingExposure = Q.bloom ? 1.1 : 1.25;
 
 // ── Sombras ──
 // Una cámara de sombra que cubriera las 320 unidades de ruta daría una resolución
@@ -298,18 +298,35 @@ if(Q.sombras){
   sun.shadow.normalBias = 0.03;   // evita el "peter-panning" en geometría fina
 }
 
-// ── Postprocesado (opcional) ──
-// Import dinámico: con bloom apagado, estos ficheros ni se piden.
-let composer = null;
+const BLOOM = { fuerza: 0.5, radio: 0.4, umbral: 0.95 };
+// ── Postprocesado: bloom ──
+// Se quitó en su día porque EffectComposer dibujaba en un buffer SIN multimuestreo y el
+// antialiasing del lienzo dejaba de tener efecto: los bordes empeoraban. La solución es
+// darle un buffer propio con samples:4 (MSAA real, como el del lienzo) y en HalfFloat,
+// para que el bloom trabaje con el brillo REAL de la escena —motores, disparos y
+// explosiones pasan de 1.0— antes de que el tone mapping lo comprima.
+// Import dinámico: en "baja" (móviles) estos ficheros ni se descargan.
+let composer = null, bloomPass = null;
+
 if(Q.bloom){
-  const [{ EffectComposer }, { RenderPass }, { UnrealBloomPass }] = await Promise.all([
+  const [{ EffectComposer }, { RenderPass }, { UnrealBloomPass }, { OutputPass }] = await Promise.all([
     import('three/addons/postprocessing/EffectComposer.js'),
     import('three/addons/postprocessing/RenderPass.js'),
     import('three/addons/postprocessing/UnrealBloomPass.js'),
+    import('three/addons/postprocessing/OutputPass.js'),
   ]);
-  composer = new EffectComposer(renderer);
+  const rt = new THREE.WebGLRenderTarget(innerWidth, innerHeight, { type: THREE.HalfFloatType, samples: 4 });
+  composer = new EffectComposer(renderer, rt);
+  composer.setPixelRatio(renderer.getPixelRatio());
+  composer.setSize(innerWidth, innerHeight);
   composer.addPass(new RenderPass(scene, camera));
-  composer.addPass(new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.5, 0.7, 0.15));
+  // Umbral alto a propósito: sólo brilla lo que de verdad emite luz. Con el umbral
+  // bajo de antes (0.15) florecía todo lo iluminado por el sol y la imagen se lavaba.
+  bloomPass = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), BLOOM.fuerza, BLOOM.radio, BLOOM.umbral);
+  composer.addPass(bloomPass);
+  // OutputPass aplica el tone mapping y la conversión a sRGB al final. Con composer,
+  // el renderer dibuja en lineal y sin esto la imagen saldría oscura y sin contraste.
+  composer.addPass(new OutputPass());
 }
 function dibujar(){
   if(composer) composer.render();
@@ -700,6 +717,9 @@ function makeNebulaTexture(hex){
 // el origen, así que el `rotation.y` del bucle no los hacía girar sobre sí mismos: los
 // paseaba en un arco de radio 110 y la nebulosa se iba flotando de sitio.
 const nebulaGroup = new THREE.Group();
+// 0.32 y no 0.42: con el bloom la escena se dibuja en coma flotante y los 16 sprites,
+// que se solapan, se SUMAN sin techo. A 0.42 la nebulosa salía magenta saturado.
+const NEBULA_OPACIDAD = Q.bloom ? 0.32 : 0.42;
 {
   const zone = ZONES[2];
   const cols = [0x9a4cff,0x3a5cff,0x2ee6c0,0xff5c8a];
@@ -710,7 +730,7 @@ const nebulaGroup = new THREE.Group();
     const tt = THREE.MathUtils.lerp(zone.from, zone.to, Math.random());
     const base = curve.getPointAt(tt).sub(center); // relativo al centro del grupo
     const offset = new THREE.Vector3((Math.random()-0.5)*46,(Math.random()-0.5)*24,(Math.random()-0.5)*46);
-    const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map:texCache[i%texCache.length], transparent:true, opacity:0.42, blending:THREE.AdditiveBlending, depthWrite:false }));
+    const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map:texCache[i%texCache.length], transparent:true, opacity:NEBULA_OPACIDAD, blending:THREE.AdditiveBlending, depthWrite:false }));
     spr.position.copy(base).add(offset);
     const sz = 30+Math.random()*34;
     spr.scale.set(sz,sz,1);
@@ -1032,8 +1052,12 @@ for(let i=0;i<TRAIL_LEN;i++){
   const f = i/(TRAIL_LEN-1);   // 0 = tobera, 1 = cola
   // Tamaños en UNIDADES DE MUNDO (la nave mide 2.6): estrecho en la tobera, se abre
   // como un penacho y se disipa. El paso a píxeles lo hace uScale en el shader.
-  trailSize[i] = 0.16 + 0.5*Math.sin(f*Math.PI*0.85);
-  trailFade[i] = Math.pow(1-f, 1.6);
+  // Más estrecha y corta que antes (era 0.16 + 0.5·sin y fade^1.6). Desde la cámara de
+  // persecución la COLA queda más cerca de la lente que la tobera, así que los puntos
+  // anchos del final se veían enormes; con el bloom eso era una bola que tapaba la nave.
+  // Comparadas tres variantes en el mismo fotograma: ésta deja ver las toberas.
+  trailSize[i] = 0.10 + 0.26*Math.sin(f*Math.PI*0.85);
+  trailFade[i] = Math.pow(1-f, 2.6);
 }
 trailGeo.setAttribute('position', new THREE.BufferAttribute(trailPosArr,3).setUsage(THREE.DynamicDrawUsage));
 trailGeo.setAttribute('aSize', new THREE.BufferAttribute(trailSize,1));
@@ -1069,7 +1093,15 @@ const trailMat = new THREE.ShaderMaterial({
     void main(){
       gl_FragColor = vec4(uColor, 1.0) * texture2D(uTex, gl_PointCoord) * vFade;
     }`,
-  transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
+  // Mezcla por MÁXIMO, no por suma. Desde la cámara de persecución los 42 puntos se
+  // apilan sobre la tobera. En el lienzo de 8 bits la suma se quedaba en 1.0 y no se
+  // notaba, pero con el bloom la escena se dibuja en coma flotante y la suma llegaba a
+  // 6.8 (medido): el bloom la convertía en una bola blanca que tapaba media nave. Con
+  // máximo cada píxel se queda con el punto más brillante: mismo aspecto que antes, sin
+  // apilamiento. Sin multiplicador: con ×1.6 el núcleo se quemaba a blanco; así roza el
+  // umbral del bloom y el resplandor conserva el cian.
+  transparent: true, depthWrite: false,
+  blending: THREE.CustomBlending, blendEquation: THREE.MaxEquation,
 });
 const trailMesh = new THREE.Points(trailGeo, trailMat);
 trailMesh.frustumCulled = false;
@@ -3480,7 +3512,7 @@ if(import.meta.env.DEV){
       mode = 'free'; progress = targetProgress = t;
       CINEMATICAS.forEach(c=> c.hecha = !cines && c.t <= t + 0.01);
     },
-    sun,
+    sun, get bloomPass(){ return bloomPass; },
     avanzar(seg, paso = 1/60){ for(let s=0; s<seg; s+=paso) frame(paso); },
     captura(tipo = 'image/jpeg'){ dibujar(); return renderer.domElement.toDataURL(tipo, 0.88); },
   };
@@ -3492,5 +3524,6 @@ addEventListener('resize', ()=>{
   camera.updateProjectionMatrix();
   renderer.setPixelRatio(Math.min(devicePixelRatio, Q.maxDpr)); // al mover la ventana
   renderer.setSize(innerWidth, innerHeight);                    // entre pantallas el
-  if(composer) composer.setSize(innerWidth, innerHeight);        // DPR cambia
+  if(composer){ composer.setPixelRatio(renderer.getPixelRatio()); composer.setSize(innerWidth, innerHeight); }
+  if(bloomPass) bloomPass.resolution.set(innerWidth, innerHeight);
 });
