@@ -297,6 +297,33 @@ body.debug #perfPanel{display:block}
   #diveFlash,#rumble{display:none}
 }
 
+/* ── Cinemáticas ──
+   Barras de cine: formato 2.39:1 aproximado. Entran deslizando y no aparecen de golpe,
+   que es la señal universal de "ahora mira, no pilotes". */
+#barrasCine i{position:fixed;left:0;right:0;height:0;background:#000;z-index:40;
+  transition:height .7s cubic-bezier(.65,0,.35,1);pointer-events:none}
+#barrasCine i:first-child{top:0}
+#barrasCine i:last-child{bottom:0}
+#barrasCine.on i{height:11vh}
+/* Rótulo de escena, abajo a la izquierda sobre la barra, como en los juegos. */
+#rotuloCine{position:fixed;left:6vw;bottom:calc(11vh + 2.2rem);z-index:41;pointer-events:none;
+  display:flex;flex-direction:column;gap:.35rem;opacity:0;transform:translateY(8px);
+  transition:opacity .9s ease,transform .9s ease}
+#rotuloCine.on{opacity:1;transform:none}
+#rotuloCine .rc-titulo{font-family:var(--display);font-size:clamp(2rem,4.6vw,3.6rem);
+  letter-spacing:.06em;text-transform:uppercase;color:#f3f7f6;line-height:1;
+  text-shadow:0 2px 24px rgba(0,0,0,.6);transition:letter-spacing 2.4s ease}
+#rotuloCine.on .rc-titulo{letter-spacing:.12em}
+#rotuloCine .rc-sub{font-family:var(--mono);font-size:.7rem;letter-spacing:.3em;
+  text-transform:uppercase;color:var(--accent);padding-left:.15rem}
+#rotuloCine .rc-sub::before{content:"";display:inline-block;width:2.2rem;height:1px;
+  background:var(--accent);vertical-align:middle;margin-right:.8rem}
+/* Durante la escena el HUD estorba: fuera, con fundido. */
+#hud,#zoneLabel,#progressTrack,#waypointLabels,#speedHint{transition:opacity .5s}
+body.en-cine #hud,body.en-cine #zoneLabel,body.en-cine #progressTrack,
+body.en-cine #waypointLabels,body.en-cine #speedHint{opacity:0 !important}
+@media(prefers-reduced-motion:reduce){ #barrasCine i,#rotuloCine{transition:none} }
+
 /* Aviso para navegadores sin WebGL. Lo inserta app.js y aborta ahí la carga. */
 #sinWebgl{position:fixed;inset:0;z-index:900;background:#030c14;color:var(--text);
   display:flex;flex-direction:column;align-items:center;justify-content:center;
@@ -385,6 +412,9 @@ body.debug #perfPanel{display:block}
 <div id="launchStatus"></div>
 <div id="rumble"></div>
 <div id="diveFlash"></div>
+<!-- Puesta en escena de las cinemáticas (src/director.js) -->
+<div id="barrasCine" aria-hidden="true"><i></i><i></i></div>
+<div id="rotuloCine" aria-live="polite"><span class="rc-titulo"></span><span class="rc-sub"></span></div>
 <div id="assetErrors"></div>
 <div id="perfPanel"></div>
 <div id="shipOrientPanel">

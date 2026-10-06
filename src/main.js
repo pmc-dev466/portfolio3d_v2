@@ -8,6 +8,8 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 // empaqueta con hash en el nombre y se pueden cachear un año sin riesgo.
 import './fonts/fonts.css';
 import { createRouteInput } from './input.js';
+import { createDirector } from './director.js';
+import { guionCombate, guionAgujero } from './guiones.js';
 
 // Mapa nombre → URL final de cada modelo. Vite copia cada .glb al build con un hash
 // de su contenido en el nombre (spaceship-3f9a1c.glb). Si un modelo cambia, cambia su
@@ -217,6 +219,7 @@ scene.fog = new THREE.FogExp2(0x030c14, 0.010);
 scene.background = scene.fog.color;
 const camera = new THREE.PerspectiveCamera(56, innerWidth/innerHeight, 0.1, 2000);
 const BASE_FOV = 56;
+const director = createDirector({ camera, baseFov: BASE_FOV });
 // ── Comprobación de WebGL ANTES de construir nada ──
 // Sin esto, en un navegador sin WebGL (GPU en lista negra, aceleración desactivada,
 // máquina virtual corporativa) el constructor de WebGLRenderer lanza y la página se
@@ -632,7 +635,9 @@ ROCAS_GRANDES.forEach((nombre, i)=>{
 const restosGrupo = new THREE.Group();
 scene.add(restosGrupo);
 const restosCampos = [];                   // { inst, dat[] } — uno por tipo de pieza
-const RESTOS_T = 0.255;                    // un poco antes del combate (0.30)
+// 0.235 ± 0.035, no 0.255 ± 0.05: con las cámaras laterales de la cinemática, la
+// chatarra que llegaba hasta 0.305 se metía delante de los cazas y tapaba los planos.
+const RESTOS_T = 0.235;                    // antes del combate (0.30), sin solaparse
 
 // Reparto por tipo: la proporción importa. Muchas vigas y pocos módulos hace que
 // parezca una estructura desmontada; al revés, un desguace. Mitad y mitad se lee como
@@ -672,7 +677,7 @@ const RESTOS_PIEZAS = [
         // un punto. Y con radio corto: a 13-39 del eje quedaban a casi 90° justo al
         // pasar y no se veía ni uno. Lo que importa es que se vean ACERCÁNDOSE de
         // frente, no que estén al lado.
-        const tt = RESTOS_T + (Math.random()-0.5)*0.10;
+        const tt = RESTOS_T + (Math.random()-0.5)*0.07;
         const base = curve.getPointAt(THREE.MathUtils.clamp(tt, 0.01, 0.99));
         const ang = Math.random()*Math.PI*2;
         const rad = 11 + Math.random()*18;
@@ -1040,7 +1045,10 @@ addEventListener('keydown', e=>{ if(e.key==='d'||e.key==='D') document.body.clas
 // justo hacia la cámara, así que el producto vectorial con la dirección de vista es
 // degenerado casi siempre y la cinta se vería de canto. Un penacho de puntos aditivos
 // siempre encara a cámara y se lee bien desde detrás, que es la vista habitual.
-const TRAIL_LEN = 42, TRAIL_STEP = 1/60;
+// 84 muestras cada 1/120 s: el mismo largo que las 42 a 1/60 de antes, con el doble de
+// densidad. Al estrechar la estela, desde las cámaras laterales de las cinemáticas se
+// veían los huecos entre puntos (una ristra de cuentas en vez de un penacho).
+const TRAIL_LEN = 84, TRAIL_STEP = 1/120;
 const trailPts = Array.from({length:TRAIL_LEN}, ()=> new THREE.Vector3());
 let trailHead = 0, trailAccum = 0, trailReady = false;
 
@@ -1048,6 +1056,8 @@ const trailGeo = new THREE.BufferGeometry();
 const trailPosArr = new Float32Array(TRAIL_LEN*3);
 const trailSize   = new Float32Array(TRAIL_LEN);
 const trailFade   = new Float32Array(TRAIL_LEN);
+const trailSizeBase = new Float32Array(TRAIL_LEN);   // tamaño de diseño; trailSize se adapta
+const _trailPrev = new THREE.Vector3();
 for(let i=0;i<TRAIL_LEN;i++){
   const f = i/(TRAIL_LEN-1);   // 0 = tobera, 1 = cola
   // Tamaños en UNIDADES DE MUNDO (la nave mide 2.6): estrecho en la tobera, se abre
@@ -1058,9 +1068,10 @@ for(let i=0;i<TRAIL_LEN;i++){
   // Comparadas tres variantes en el mismo fotograma: ésta deja ver las toberas.
   trailSize[i] = 0.10 + 0.26*Math.sin(f*Math.PI*0.85);
   trailFade[i] = Math.pow(1-f, 2.6);
+  trailSizeBase[i] = trailSize[i];
 }
 trailGeo.setAttribute('position', new THREE.BufferAttribute(trailPosArr,3).setUsage(THREE.DynamicDrawUsage));
-trailGeo.setAttribute('aSize', new THREE.BufferAttribute(trailSize,1));
+trailGeo.setAttribute('aSize', new THREE.BufferAttribute(trailSize,1).setUsage(THREE.DynamicDrawUsage));
 trailGeo.setAttribute('aFade', new THREE.BufferAttribute(trailFade,1));
 
 // PointsMaterial no admite tamaño por punto, así que hace falta un shader mínimo
@@ -1070,6 +1081,7 @@ const trailMat = new THREE.ShaderMaterial({
     uTex:    { value: GLOW_TEX },
     uColor:  { value: new THREE.Color(0x6fd9ff) },
     uThrust: { value: 0 },
+    uMaxPx:  { value: 48 },
     // Factor de proyección: convierte un tamaño en unidades de mundo a píxeles.
     // Es alto/(2·tan(fov/2)); se recalcula por frame porque el FOV cambia en la caída.
     uScale:  { value: 600 },
@@ -1080,10 +1092,16 @@ const trailMat = new THREE.ShaderMaterial({
     uniform float uThrust;
     uniform float uScale;
     varying float vFade;
+    uniform float uMaxPx;
     void main(){
-      vFade = aFade * uThrust;
       vec4 mv = modelViewMatrix * vec4(position, 1.0);
-      gl_PointSize = aSize * uThrust * uScale / max(-mv.z, 0.001);
+      float d = -mv.z;
+      // Los puntos casi pegados a la lente se desvanecen: con la cámara detrás de la nave
+      // la cola de la estela queda ENCIMA de la cámara y tapaba el plano con un borrón.
+      vFade = aFade * uThrust * smoothstep(1.2, 4.5, d);
+      // Tope en píxeles por la misma razón: un punto a 1 unidad de la cámara ocupaba
+      // media pantalla. El tope es relativo al alto del lienzo (ver uMaxPx en el bucle).
+      gl_PointSize = min(aSize * uThrust * uScale / max(d, 0.001), uMaxPx);
       gl_Position = projectionMatrix * mv;
     }`,
   fragmentShader: `
@@ -1325,7 +1343,12 @@ const flashes = [];    // destellos de impacto: se crean y se sueltan, son ~8-10
 // por segundo: son parámetros por capa porque una explosión creíble es la suma de
 // varios ritmos —un núcleo que revienta y muere, una bola que se infla despacio, un
 // anillo que sale disparado— y no un único sprite creciendo a velocidad fija.
+// Las explosiones se calibraron sin bloom. Con él, sus cuatro capas aditivas se suman en
+// coma flotante y el bloom las hinchaba hasta llenar la pantalla de blanco (en los planos
+// de derribo de la cinemática no se veía ni el caza). Se atenúan en bloque.
+const ESCALA_DESTELLO = Q.bloom ? 0.55 : 1;
 function destello(pos, { tex=GLOW_TEX, color=0xffd9a0, esc0=4, crece=7, dur=0.6, op=0.9 }={}){
+  op *= ESCALA_DESTELLO;
   const s = new THREE.Sprite(new THREE.SpriteMaterial({
     map:tex, color, transparent:true, opacity:op,
     blending:THREE.AdditiveBlending, depthWrite:false,
@@ -2212,15 +2235,26 @@ function iniciarCine(i){
   speedHint.classList.add('hide');
   if(c.nombre === 'combate'){
     prepararCombate();
+    if(enemigos.length){
+      // Colocar los cazas YA: si no, el primer fotograma los dibuja en el origen del
+      // mundo hasta que el bucle los sitúa.
+      const t0 = Math.min(0.999, progress + 0.015);
+      actualizarCombate(0, c.dur, 0, curve.getPointAt(t0, _p), curve.getTangentAt(t0, _tan).normalize());
+      director.start(guionCombate(), ctxCombate);
+    }
     // Si el modelo del caza no llegó a cargar no hay nada que enseñar: en vez de
     // dejar la cámara nueve segundos y medio dando vueltas sobre el vacío, se
     // devuelve el control y el recorrido sigue como si el beat no existiera.
     if(!enemigos.length){ mode = 'free'; speedHint.classList.remove('hide'); cineIdx = -1; return; }
+  }else if(c.nombre === 'agujero'){
+    ctxAgujero.actualizar(0);
+    director.start(guionAgujero(), ctxAgujero);
   }
 }
 
 function finCine(){
   mode = 'free';
+  director.end();
   // Ya no hay barra de scroll que resincronizar: el progreso es la única fuente de
   // verdad, así que al devolver el control se sigue exactamente desde donde quedó.
   targetProgress = progress;
@@ -2331,10 +2365,12 @@ function prepararCombate(){
     activarSombras(e);
     // Motor encendido en la cola: a distancia es lo que los distingue como naves.
     const motor = new THREE.Sprite(new THREE.SpriteMaterial({
-      map:GLOW_TEX, color:0xff6a3a, transparent:true, opacity:0.95,
+      map:GLOW_TEX, color:0xff6a3a, transparent:true, opacity:0.75,
       blending:THREE.AdditiveBlending, depthWrite:false,
     }));
-    motor.scale.setScalar(2.2);
+    // 0.7, no 2.2: con bloom el resplandor se hinchaba en un halo rosa que envolvía al
+    // caza entero en los planos cortos; parecían globos. Ahora es un núcleo en la tobera.
+    motor.scale.setScalar(0.7);
     // La geometría va normalizada a 1 en su lado MAYOR, que en este casco es la
     // envergadura (X). El largo (Z) es 0.78, así que la cola cae en z = +0.39.
     motor.position.set(0, 0, 0.39);     // +Z local = cola (el morro va en -Z)
@@ -2381,7 +2417,9 @@ function actualizarCombate(u, dur, dt, puntoRuta, tangenteRuta){
   // limita a deslizarse mientras a su alrededor pasan cosas.
   // Fuera de la ventana vale 0; al acabar el giro completo 2π ≡ 0, así que volver a
   // cero no produce ningún salto visible.
-  const uR = (u - 0.36) / 0.22;
+  // Ventana alineada con el plano de la pasada (guiones.js, plano 6): el tonel se ve
+  // con la nave viniendo de frente hacia una cámara fija, que es donde luce.
+  const uR = (u - 0.47) / 0.13;
   combateAlabeo = (uR > 0 && uR < 1) ? Math.PI*2 * smoothstep01(uR) : 0;
 
   for(const e of enemigos){
@@ -2423,15 +2461,49 @@ function actualizarCombate(u, dur, dt, puntoRuta, tangenteRuta){
       // Mismas capas que al reventar una roca: núcleo, bola, onda y rescoldo. Un caza
       // no puede estallar con menos aparato que un pedrusco.
       destello(e.pos, { color:0xffffff, esc0:4.5, crece:34, dur:0.18, op:1 });
-      destello(e.pos, { color:0xffa040, esc0:7,   crece:12, dur:0.9,  op:0.95 });
-      destello(e.pos, { tex:SHOCK_TEX, color:0xffd0a0, esc0:5, crece:45, dur:0.45, op:0.85 });
+      destello(e.pos, { color:0xffa040, esc0:5,   crece:8,  dur:0.9,  op:0.95 });
+      destello(e.pos, { tex:SHOCK_TEX, color:0xffd0a0, esc0:4, crece:34, dur:0.45, op:0.85 });
       destello(e.pos, { color:0xff5a1e, esc0:3.4, crece:3,  dur:1.6,  op:0.6 });
       emitirEscombros(e.pos, 4.2);
       SND.impacto();
+      director.impacto(0.8);              // la explosión sacude la cámara
       scene.remove(e.malla);
     }
   }
 }
+
+// Lo que los planos del guion pueden consultar. Se crea una vez y lee el estado vivo.
+const _centro = new THREE.Vector3();
+const ctxCombate = {
+  ship, F: _cbF, R: _cbR, U: _cbU,
+  // Getters, no valores: _camA/_lookA se declaran más abajo (con el resto de temporales
+  // del bucle) y leerlos aquí al definir el objeto rompería por la zona muerta temporal.
+  get chasePos(){ return _camA; }, get chaseLook(){ return _lookA; },
+  // Un caza muerto conserva su última posición: así el plano del derribo encuadra la
+  // explosión aunque el modelo ya no esté.
+  E: i => enemigos[i]?.pos ?? ship.position,
+  centroCazas(){
+    let n = 0; _centro.set(0,0,0);
+    for(const e of enemigos) if(!e.muerto){ _centro.add(e.pos); n++; }
+    return n ? _centro.divideScalar(n) : _centro.copy(ship.position);
+  },
+  // Disparos que pasan rozando la CÁMARA, no la nave: es lo que mete al espectador
+  // dentro del tiroteo. Fallan a propósito por 1.5-3 unidades.
+  disparoCercano(i){
+    const e = enemigos[i]; if(!e || e.muerto) return;
+    for(let n=0;n<3;n++){
+      const b = bolts.find(x=>!x.activo); if(!b) return;
+      b.origen.copy(e.pos);
+      b.destino.copy(camera.position)
+        .addScaledVector(_cbR, (n-1)*2.2 + (Math.random()-0.5))
+        .addScaledVector(_cbU, 1.5 + Math.random())
+        .addScaledVector(_cbF, -6);
+      b.dur = 0.42 + n*0.09; b.t = -n*0.12; b.activo = true; b.rock = null;
+    }
+    SND.disparo();
+  },
+  sonido(n){ if(n === 'whoosh') SND.whoosh(0.8); },
+};
 
 function limpiarCombate(){
   for(const e of enemigos) if(!e.muerto) scene.remove(e.malla);
@@ -2442,44 +2514,6 @@ function limpiarCombate(){
 // ── Poses de cámara de cada beat ──
 const _cv1 = new THREE.Vector3(), _cv2 = new THREE.Vector3(), _cv3 = new THREE.Vector3();
 
-// Plataforma de cámara en TRES FASES encadenadas, igual que el agujero negro —que es
-// la referencia de calidad de la escena—. Cada fase es un desplazamiento fijo respecto
-// al marco de la ruta (atrás, arriba, al lado) más el punto al que mira. Al ser todo
-// relativo al mismo marco en el que vuelan los cazas, el encuadre no puede irse.
-//   A  0.00–0.34  persecución alta por detrás: se ve la nave entera y el que cruza
-//   B  0.34–0.66  cámara baja y lateral, pegada: el tonel llena el cuadro
-//   C  0.66–1.00  sobre el hombro y muy cerca: el último cae casi encima de la lente
-const FASES_CAM = [
-  { hasta:0.34, atras:15.5, arriba:5.0, lado:-4.5, miraAde:17, miraArr:1.5 },
-  { hasta:0.66, atras: 9.5, arriba:1.6, lado: 7.5, miraAde:13, miraArr:2.5 },
-  { hasta:1.01, atras:11.0, arriba:3.4, lado:-6.0, miraAde:15, miraArr:1.0 },
-];
-
-function poseCombate(u, outPos, outLook){
-  // Fase actual y mezcla con la siguiente. Se interpolan los PARÁMETROS, no dos
-  // posiciones ya calculadas: así el movimiento entre fases es un travelling continuo
-  // y no un corte, que es lo que separa una cinemática de un cambio de plano brusco.
-  let i = 0;
-  while(i < FASES_CAM.length-1 && u > FASES_CAM[i].hasta) i++;
-  const a = FASES_CAM[i];
-  const b = FASES_CAM[Math.min(i+1, FASES_CAM.length-1)];
-  const desde = i === 0 ? 0 : FASES_CAM[i-1].hasta;
-  // Sólo se mezcla en el último 18% de cada fase; el resto del tiempo la cámara está
-  // asentada. Mezclar durante toda la fase daría una deriva constante y mareante.
-  const w = smoothstep01((u - (a.hasta - (a.hasta-desde)*0.18)) / ((a.hasta-desde)*0.18));
-  const m = (x,y)=> x + (y-x)*w;
-
-  // Balanceo lento y de amplitud corta: mantiene el plano vivo sin comprometer nada.
-  const vaiven = Math.sin(u*7.5)*1.6;
-
-  outPos.copy(ship.position)
-    .addScaledVector(_cbF, -m(a.atras, b.atras))
-    .addScaledVector(_cbU,  m(a.arriba, b.arriba))
-    .addScaledVector(_cbR,  m(a.lado, b.lado) + vaiven);
-  outLook.copy(ship.position)
-    .addScaledVector(_cbF, m(a.miraAde, b.miraAde))
-    .addScaledVector(_cbU, m(a.miraArr, b.miraArr));
-}
 
 // ── Beat 2: agujero negro, en cuatro fases ──
 //   0.00–0.30  aproximación: plano amplio, la nave pequeña contra el disco
@@ -2537,33 +2571,20 @@ function posicionarNaveAgujero(u, ct){
   }
 }
 
-function poseAgujero(u, outPos, outLook){
-  _cv1.subVectors(agujeroGrupo.position, ship.position).normalize();
-  _cv2.crossVectors(_cv1, UP).normalize();
-
-  if(u < 0.30){
-    // Plano amplio: la nave pequeña contra el disco.
-    const abre = smoothstep01(u/0.30);
-    outPos.copy(ship.position)
-      .addScaledVector(_cv2, 22 + abre*14)
-      .addScaledVector(_cv1, -18 - abre*8)
-      .addScaledVector(UP, 6 + abre*6);
-    outLook.copy(ship.position).addScaledVector(_cv1, 30 + abre*20);
-  }else if(u < 0.72){
-    // Rasante: cámara pegada detrás, el disco ocupa el encuadre.
-    const k = smoothstep01((u - 0.30)/0.42);
-    outPos.copy(ship.position)
-      .addScaledVector(_cv1, -9 - k*4)
-      .addScaledVector(_cv2, 4 - k*3)
-      .addScaledVector(UP, 2.6 - k*1.4);
-    outLook.copy(ship.position).addScaledVector(_cv1, 34);
-  }else{
-    // Salida: se recoloca detrás de la nave, mirando hacia delante.
-    _cv2.set(0,0,-1).applyQuaternion(ship.quaternion);
-    outPos.copy(ship.position).addScaledVector(_cv2, -5.5).addScaledVector(UP, 1.8);
-    outLook.copy(ship.position).addScaledVector(_cv2, 12);
-  }
-}
+// Contexto que ven los planos del agujero. El marco apunta HACIA el agujero mientras
+// éste arrastra la nave; tras el salto de gusano vuelve a la dirección de la ruta.
+const _agF = new THREE.Vector3(), _agR = new THREE.Vector3(), _agU = new THREE.Vector3();
+const ctxAgujero = {
+  ship, F: _agF, R: _agR, U: _agU,
+  get H(){ return agujeroGrupo.position; },
+  get chasePos(){ return _camA; }, get chaseLook(){ return _lookA; },
+  actualizar(u){
+    if(u < 0.72) _agF.subVectors(agujeroGrupo.position, ship.position).normalize();
+    else curve.getTangentAt(Math.min(0.999, progress + 0.015), _agF).normalize();
+    _agR.crossVectors(_agF, UP).normalize();
+    _agU.crossVectors(_agR, _agF).normalize();
+  },
+};
 
 // ── Aterrizaje final ──
 const finalPanel = document.getElementById('finalPanel');
@@ -2588,6 +2609,8 @@ function finAterrizaje(){
 // Reinicio sin recargar: devuelve todo al estado de portada.
 function reiniciarRecorrido(){
   mode = 'idle';
+  director.end();
+  escalaTiempo = 1;
   arrancado = false;                 // sin esto, el segundo recorrido no arrancaría
   launchT = landT = cineT = 0;
   cineIdx = -1;
@@ -2739,6 +2762,7 @@ document.addEventListener('visibilitychange', ()=>{
 // (ver el director). Afecta a todo lo que se mueve —nave, partículas, disparos— pero no
 // al audio, que va por su propio reloj.
 let escalaTiempo = 1;
+let apagadoCine = 0;        // 0 → 1 mientras hay cinemática (apaga halos de navegación)
 // Tiempo de simulación: suma de los dt ESCALADOS. Las oscilaciones (balanceos, parpadeos)
 // lo usan, así que en cámara lenta también van despacio, como debe ser.
 let tiempoSim = 0;
@@ -2755,6 +2779,9 @@ function animate(){
 // Un fotograma completo: simulación + dibujo. Separado de animate() para poder avanzarlo
 // a mano con un dt fijo (herramienta de desarrollo de abajo).
 function frame(dtReal){
+  // Rampa muy corta (~0.1 s): la cámara lenta debe entrar de golpe con el corte, pero
+  // sin un escalón de un frame que se percibe como un tirón.
+  escalaTiempo += ((director.activo ? director.escalaTiempo : 1) - escalaTiempo) * smoothK(0.35, dtReal);
   const dt = dtReal * escalaTiempo;
   tiempoSim += dt;
   const gt = tiempoSim;
@@ -2846,30 +2873,9 @@ function frame(dtReal){
 
     // Entrada y salida mezcladas con la cámara normal: sin esto habría dos cortes
     // secos, uno al entrar y otro al salir.
-    chasePose(ct, 0, _camA, _lookA);
-    if(c.nombre === 'combate') poseCombate(u, _camB, _lookB);
-    else                       poseAgujero(u, _camB, _lookB);
-    const w = Math.min(smoothstep01(u/0.12), 1 - smoothstep01((u-0.86)/0.14));
-    camera.position.lerpVectors(_camA, _camB, w);
-    _look.lerpVectors(_lookA, _lookB, w);
-
-    // Sacudida creciente durante el rasante y la caída: suma de senos, no ruido
-    // blanco, igual que en el despegue y la caída de la ruta.
-    if(c.nombre === 'agujero'){
-      const sac = u < 0.30 ? 0
-        : (u < 0.72 ? smoothstep01((u-0.30)/0.42)
-                    : 1 - smoothstep01((u-0.72)/0.12));
-      if(sac > 0.01){
-        const rx = (Math.sin(gt*44) + Math.sin(gt*29.7)*0.6) * 0.42 * sac;
-        const ry = (Math.sin(gt*51) + Math.sin(gt*35.3)*0.6) * 0.42 * sac;
-        camera.position.x += rx; camera.position.y += ry;
-        _look.x += rx*0.3;       _look.y += ry*0.3;
-      }
-      camera.lookAt(_look);
-      if(sac > 0.01) camera.rotateZ(Math.sin(gt*26)*0.03*sac);
-    }else{
-      camera.lookAt(_look);
-    }
+    chasePose(Math.min(0.999, progress), 0, _camA, _lookA);
+    if(c.nombre === 'agujero') ctxAgujero.actualizar(u);
+    director.update(u, dtReal, c.nombre === 'agujero' ? ctxAgujero : ctxCombate);
 
     if(u >= 1){
       if(c.nombre === 'combate') limpiarCombate();
@@ -3044,7 +3050,9 @@ function frame(dtReal){
   else if(dive < 0.04) whooshSonado = false;
 
   // FOV: sólo se recalcula la matriz de proyección si cambia de verdad.
-  const targetFov = BASE_FOV + dive*20 + (mode==='launch' ? thrust*7 : 0);
+  // En cinemática la lente la pone el plano (el director ya la ha aplicado).
+  const targetFov = director.activo ? director.fov
+    : BASE_FOV + dive*20 + (mode==='launch' ? thrust*7 : 0);
   if(Math.abs(camera.fov - targetFov) > 0.02){
     camera.fov = targetFov;
     camera.updateProjectionMatrix();
@@ -3065,20 +3073,36 @@ function frame(dtReal){
   _tmp.set(0, 0.05, 1.2).applyQuaternion(ship.quaternion).add(ship.position);
   if(!trailReady){ for(let i=0;i<TRAIL_LEN;i++) trailPts[i].copy(_tmp); trailReady = true; }
   trailAccum += dt;
+  // Si en un frame toca avanzar varias casillas, las intermedias se rellenan
+  // interpolando entre la cabeza anterior y la posición actual. Sin esto conservaban la
+  // posición de hace TRAIL_LEN muestras y aparecían puntos sueltos lejos de la nave.
+  _trailPrev.copy(trailPts[trailHead]);
+  const cabezaAnt = trailHead;
   let pasos = 0;
-  while(trailAccum >= TRAIL_STEP && pasos++ < 4){
+  while(trailAccum >= TRAIL_STEP && pasos < 8){
     trailAccum -= TRAIL_STEP;
     trailHead = (trailHead + 1) % TRAIL_LEN;
+    pasos++;
   }
+  for(let k=1;k<pasos;k++) trailPts[(cabezaAnt + k) % TRAIL_LEN].lerpVectors(_trailPrev, _tmp, k/pasos);
   trailPts[trailHead].copy(_tmp);   // la cabeza sigue siempre a la nave, avance o no
   for(let i=0;i<TRAIL_LEN;i++){
     const q = trailPts[(trailHead - i + TRAIL_LEN) % TRAIL_LEN];
     trailPosArr[i*3] = q.x; trailPosArr[i*3+1] = q.y; trailPosArr[i*3+2] = q.z;
+    // Cada punto mide al menos lo que lo separa del siguiente: a cualquier velocidad se
+    // solapan y la estela se lee como un penacho continuo, no como una ristra de cuentas
+    // (pasaba en las cinemáticas, con la nave arrastrada muy rápido y vista de lado).
+    if(i > 0){
+      const p = trailPts[(trailHead - i + 1 + TRAIL_LEN) % TRAIL_LEN];
+      trailSize[i] = Math.max(trailSizeBase[i], Math.min(q.distanceTo(p) * 1.15, 1.2));
+    }
   }
   trailGeo.attributes.position.needsUpdate = true;
+  trailGeo.attributes.aSize.needsUpdate = true;
   trailMat.uniforms.uThrust.value = thrust * (1 + dive*0.6);
   const escalaPx = renderer.domElement.height / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2));
   trailMat.uniforms.uScale.value = escalaPx;
+  trailMat.uniforms.uMaxPx.value = renderer.domElement.height * 0.07;
   humoMat.uniforms.uScale.value  = escalaPx;
   escMat.uniforms.uScale.value   = escalaPx;   // faltaba: los escombros se quedaban
                                                // con el 600 por defecto, así que su
@@ -3449,14 +3473,20 @@ function frame(dtReal){
   }
   setActiveWaypoint(mode === 'free' ? closest : -1);
 
+  // Los halos y anillos de los planetas-sección son señales de navegación pensadas para la
+  // cámara de vuelo. Vistos desde las cámaras laterales de una cinemática se convertían en
+  // arcos turquesa gigantes cruzando el plano: se apagan mientras dura la escena.
+  apagadoCine += ((director.activo ? 1 : 0) - apagadoCine) * smoothK(0.3, dtReal);
   for(let i=0;i<waypointPlanets.length;i++){
     const pl = waypointPlanets[i];
+    pl.ring.material.opacity = 0.2 * (1 - apagadoCine);
+    pl.halo.visible = pl.ring.visible = apagadoCine < 0.99;
     pl.mesh.rotation.y += dt*pl.spin;
     pl.ring.rotation.z += dt*pl.spin*0.4;
     // El halo respira y se enciende cuando su sección está activa. Se compara con
     // pl.idx (la sección a la que pertenece), no con la posición en el array.
     pl.halo.material.opacity = pl.baseHalo * (0.78 + Math.sin(gt*1.3 + pl.idx)*0.12)
-                             * (pl.idx === activeIdx ? 1.9 : 1);
+                             * (pl.idx === activeIdx ? 1.9 : 1) * (1 - apagadoCine);
   }
   if(bigPlanet) bigPlanet.rotation.y += dt*0.02;
 
@@ -3508,14 +3538,17 @@ if(import.meta.env.DEV){
     // encima de su punto de inicio las dispara y la captura sale a mitad de escena.
     volarA(t, { cines = false } = {}){
       startOverlay.style.display = 'none';
-      if(mode === 'cine'){ limpiarCombate(); cineIdx = -1; }
+      if(mode === 'cine'){ limpiarCombate(); director.end(); cineIdx = -1; }
       mode = 'free'; progress = targetProgress = t;
-      CINEMATICAS.forEach(c=> c.hecha = !cines && c.t <= t + 0.01);
+      // Con cines:true sólo queda pendiente la escena que empieza en t; las anteriores
+      // se dan por vistas (si no, saltar al agujero dispararía antes el combate).
+      CINEMATICAS.forEach(c=> c.hecha = cines ? c.t < t - 0.01 : c.t <= t + 0.01);
     },
-    sun, get bloomPass(){ return bloomPass; },
+    sun, get bloomPass(){ return bloomPass; }, director, ctxCombate, ctxAgujero, enemigos, CINEMATICAS,
     avanzar(seg, paso = 1/60){ for(let s=0; s<seg; s+=paso) frame(paso); },
     captura(tipo = 'image/jpeg'){ dibujar(); return renderer.domElement.toDataURL(tipo, 0.88); },
   };
+  import('./dev.js').then(m => m.instalarBanco(window.__dev));
 }
 
 
