@@ -3609,7 +3609,8 @@ if(import.meta.env.DEV){
       // se dan por vistas (si no, saltar al agujero dispararía antes el combate).
       CINEMATICAS.forEach(c=> c.hecha = cines ? c.t < t - 0.01 : c.t <= t + 0.01);
     },
-    sun, get bloomPass(){ return bloomPass; }, aplicarResolucion, factorTitulo, TITULO_CAM, director, ctxCombate, ctxAgujero, enemigos, CINEMATICAS,
+    sun, get bloomPass(){ return bloomPass; }, aplicarResolucion, factorTitulo, TITULO_CAM,
+    get bigPlanet(){ return bigPlanet; }, waypointPlanets, director, ctxCombate, ctxAgujero, enemigos, CINEMATICAS,
     avanzar(seg, paso = 1/60){ for(let s=0; s<seg; s+=paso) frame(paso); },
     captura(tipo = 'image/jpeg'){ dibujar(); return renderer.domElement.toDataURL(tipo, 0.88); },
   };
