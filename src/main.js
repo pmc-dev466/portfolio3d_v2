@@ -208,6 +208,13 @@ function zoneAt(p){ return ZONES.find(z=>p>=z.from && p<=z.to) || ZONES[ZONES.le
 // ── Scene ──
 const scene = new THREE.Scene();
 scene.fog = new THREE.FogExp2(0x030c14, 0.010);
+// El cielo ES el color de la niebla: se comparte el mismo objeto Color, así que cuando
+// el bucle funde la niebla de una zona a otra, el fondo la sigue sin código extra.
+// Antes el fondo era negro fijo mientras la niebla se teñía de morado o azul. Todo lo
+// lejano quedaba "lleno" de niebla y se recortaba sobre el negro como una silueta plana:
+// la fachada del hangar de llegada se veía desde media ruta como un muro de 236 × 126
+// unidades con el borde en escalera. Ahora lo lejano se funde con el cielo.
+scene.background = scene.fog.color;
 const camera = new THREE.PerspectiveCamera(56, innerWidth/innerHeight, 0.1, 2000);
 const BASE_FOV = 56;
 // ── Comprobación de WebGL ANTES de construir nada ──
@@ -379,9 +386,12 @@ function makeStars(count, spread, size, color, center){
   }
   g.setAttribute('position', new THREE.BufferAttribute(pos,3));
   g.computeBoundingSphere();
+  // fog:false porque las estrellas están en el infinito: la niebla las convertiría en
+  // puntos del mismo color que el cielo, es decir, invisibles. Su atenuación en zonas
+  // densas se hace a mano en el bucle (ver ESTRELLAS_OPACIDAD).
   return new THREE.Points(g, new THREE.PointsMaterial({
     color, size, map:STAR_TEX, sizeAttenuation:true,
-    transparent:true, opacity:0.9, depthWrite:false,
+    transparent:true, opacity:0.9, depthWrite:false, fog:false,
   }));
 }
 const starsFar  = makeStars(2600, 1400, 1.1, 0xbfe4ff, null);       // se reposiciona sobre la cámara
@@ -913,6 +923,11 @@ getModel('planet_big', m=>{
   // 100 unidades, no 46. Es el planeta hacia el que se pica, así que tiene que dominar
   // el encuadre; a 46 y colocado de lado se quedaba en un objeto más del decorado.
   bigPlanet = normalizeModel(m, 100);
+  // Fuera de la niebla. Está en la zona más densa del recorrido (0.030) y a 50-80
+  // unidades: medido, el 96 % de su color era niebla, así que se veía como una bola
+  // plana sin continentes — justo cuando es el plano protagonista del picado. El "aire"
+  // de la entrada atmosférica lo pone el cielo, que ahora toma el color de la niebla.
+  bigPlanet.traverse(c=>{ if(c.isMesh){ c.material = c.material.clone(); c.material.fog = false; } });
   // Posición RESUELTA POR BÚSQUEDA, no puesta a ojo. El problema de fondo era que el
   // offset anterior (-34,-52,-16) dejaba el planeta a casi 90° de la dirección de vista
   // durante todo el picado: medido, la NDC de su centro se iba a (-478, -1192) y sólo
@@ -2688,13 +2703,29 @@ document.addEventListener('visibilitychange', ()=>{
   if(!paused) clock.getDelta();  // descarta el hueco acumulado con la pestaña oculta
 });
 
+// Escala de tiempo global: 1 = normal. Las cinemáticas la bajan para la cámara lenta
+// (ver el director). Afecta a todo lo que se mueve —nave, partículas, disparos— pero no
+// al audio, que va por su propio reloj.
+let escalaTiempo = 1;
+// Tiempo de simulación: suma de los dt ESCALADOS. Las oscilaciones (balanceos, parpadeos)
+// lo usan, así que en cámara lenta también van despacio, como debe ser.
+let tiempoSim = 0;
+
 function animate(){
   requestAnimationFrame(animate);
   if(paused) return;
   // Tope de dt: al volver de otra pestaña getDelta() devuelve segundos enteros y sin
   // recorte la nave pegaría un salto de decenas de unidades en un solo frame.
-  const dt = Math.min(clock.getDelta(), 0.05);
-  const gt = clock.getElapsedTime();
+  const dtReal = Math.min(clock.getDelta(), 0.05);
+  frame(dtReal);
+}
+
+// Un fotograma completo: simulación + dibujo. Separado de animate() para poder avanzarlo
+// a mano con un dt fijo (herramienta de desarrollo de abajo).
+function frame(dtReal){
+  const dt = dtReal * escalaTiempo;
+  tiempoSim += dt;
+  const gt = tiempoSim;
 
   mouseX += (mouseTX - mouseX) * smoothK(0.12, dt);
   mouseY += (mouseTY - mouseY) * smoothK(0.12, dt);
@@ -3144,6 +3175,10 @@ function animate(){
   _fogCol.setHex(zone.fog);
   scene.fog.color.lerp(_fogCol, smoothK(0.04, dt));
   scene.fog.density += (zone.density - scene.fog.density) * smoothK(0.04, dt);
+  // Cuanto más densa la zona, menos estrellas se ven: 0.9 en espacio abierto (0.010),
+  // ~0.3 en la entrada atmosférica (0.030). Es lo que hace creíble que el cielo se aclare.
+  starsFar.material.opacity = starsNear.material.opacity =
+    0.9 * THREE.MathUtils.clamp(1 - (scene.fog.density - 0.010) / 0.030, 0.25, 1);
   if(zone.name !== lastZoneName && mode === 'free'){
     zoneLabelEl.textContent = zone.name; lastZoneName = zone.name;
   }
@@ -3424,6 +3459,32 @@ function animate(){
 }
 
 animate();
+
+// ── Herramienta de desarrollo ──
+// Sólo existe con `npm run dev`: Vite sustituye import.meta.env.DEV por false en el build
+// y el bloque entero desaparece del paquete de producción (comprobado en dist/).
+// Permite avanzar la escena fotograma a fotograma y capturar imágenes aunque la
+// pestaña esté oculta, que es cuando el navegador congela requestAnimationFrame.
+if(import.meta.env.DEV){
+  window.__dev = {
+    THREE, scene, camera, renderer,
+    frame, dibujar,
+    get mode(){ return mode; }, get progress(){ return progress; },
+    get escalaTiempo(){ return escalaTiempo; },
+    // Salta a vuelo libre en el punto t del recorrido, sin portada ni despegue.
+    // Por defecto marca como vistas las cinemáticas anteriores a t: si no, saltar por
+    // encima de su punto de inicio las dispara y la captura sale a mitad de escena.
+    volarA(t, { cines = false } = {}){
+      startOverlay.style.display = 'none';
+      if(mode === 'cine'){ limpiarCombate(); cineIdx = -1; }
+      mode = 'free'; progress = targetProgress = t;
+      CINEMATICAS.forEach(c=> c.hecha = !cines && c.t <= t + 0.01);
+    },
+    sun,
+    avanzar(seg, paso = 1/60){ for(let s=0; s<seg; s+=paso) frame(paso); },
+    captura(tipo = 'image/jpeg'){ dibujar(); return renderer.domElement.toDataURL(tipo, 0.88); },
+  };
+}
 
 
 addEventListener('resize', ()=>{
