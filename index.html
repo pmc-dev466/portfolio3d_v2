@@ -44,13 +44,16 @@
   --logo:'Archivo Black','Arial Black',sans-serif;
 }
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-html,body{width:100%;background:#030c14;color:var(--text);font-family:var(--sans);overflow-x:hidden}
+/* La página NO se desplaza nunca: el recorrido lo lleva src/input.js. Así el móvil no
+   esconde ni saca la barra de direcciones a mitad de gesto (cambiaba el alto de la
+   ventana y la nave pegaba saltos), y no hay rebote ni "tirar para recargar".
+   touch-action:none le dice al navegador que los gestos son nuestros. */
+html,body{width:100%;height:100%;overflow:hidden;overscroll-behavior:none;touch-action:none;
+  background:#030c14;color:var(--text);font-family:var(--sans)}
 #stage{position:fixed;inset:0;z-index:1}
 canvas{position:fixed;inset:0;display:block}
-/* Altura del "raíl" de scroll: es lo que marca cuánto hay que rodar para avanzar por
-   la ruta. Subido de 1100vh a 2400vh → el recorrido va a menos de la mitad de
-   velocidad y las secciones quedan mucho más separadas. */
-#scrollDriver{position:relative;width:100%;height:2400vh;z-index:0}
+/* Los paneles con texto largo sí se desplazan con el dedo, en vertical. */
+#infoPanel,#finalPanel{touch-action:pan-y}
 
 #hud{position:fixed;top:0;left:0;right:0;display:flex;justify-content:space-between;align-items:center;padding:1.6rem 2.4rem;z-index:20;pointer-events:none;font-family:var(--mono);font-size:.68rem;letter-spacing:.18em;text-transform:uppercase;color:var(--accent)}
 #hud span.dim{color:var(--muted)}
@@ -392,7 +395,6 @@ body.debug #perfPanel{display:block}
 </div>
 
 <div id="stage"></div>
-<div id="scrollDriver"></div>
 
 <script type="module" src="/src/main.js"></script>
 </body>

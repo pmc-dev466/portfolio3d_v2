@@ -4,6 +4,7 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 // Las fuentes se importan desde aquí y no con un <link> en el HTML: así Vite las
 // empaqueta con hash en el nombre y se pueden cachear un año sin riesgo.
 import './fonts/fonts.css';
+import { createRouteInput } from './input.js';
 
 // Mapa nombre → URL final de cada modelo. Vite copia cada .glb al build con un hash
 // de su contenido en el nombre (spaceship-3f9a1c.glb). Si un modelo cambia, cambia su
@@ -1983,11 +1984,7 @@ const startOverlay = document.getElementById('startOverlay');
 const speedHint    = document.getElementById('speedHint');
 const launchStatus = document.getElementById('launchStatus');
 const rumbleEl     = document.getElementById('rumble');
-const docEl = document.documentElement;
 
-// Durante portada y despegue la página no scrollea: manda la secuencia, no la rueda.
-// Se libera justo en el relevo, así el progreso arranca limpio en 0.
-docEl.style.overflow = 'hidden';
 
 const LAUNCH_CUES = [
   [0.00,'Secuencia de encendido'], [0.09,'Motores al 100%'], [0.22,'Despegue'],
@@ -2117,7 +2114,6 @@ btnSinSonido.addEventListener('click', e=>{ e.stopPropagation(); startExperience
 
 function finishLaunch(){
   mode = 'free';
-  docEl.style.overflow = '';
   launchStatus.classList.remove('on');
   rumbleEl.style.opacity = 0;
   speedHint.classList.remove('hide');  // ya se pilota con scroll: se vuelve a ofrecer
@@ -2146,7 +2142,6 @@ function iniciarCine(i){
   cineIdx = i; cineT = 0;
   agujeroSaltado = false;
   mode = 'cine';
-  docEl.style.overflow = 'hidden';
   setActiveWaypoint(-1);
   speedHint.classList.add('hide');
   if(c.nombre === 'combate'){
@@ -2154,17 +2149,14 @@ function iniciarCine(i){
     // Si el modelo del caza no llegó a cargar no hay nada que enseñar: en vez de
     // dejar la cámara nueve segundos y medio dando vueltas sobre el vacío, se
     // devuelve el control y el recorrido sigue como si el beat no existiera.
-    if(!enemigos.length){ mode = 'free'; docEl.style.overflow = ''; speedHint.classList.remove('hide'); cineIdx = -1; return; }
+    if(!enemigos.length){ mode = 'free'; speedHint.classList.remove('hide'); cineIdx = -1; return; }
   }
 }
 
 function finCine(){
   mode = 'free';
-  docEl.style.overflow = '';
-  // Sincronizar la rueda con el progreso alcanzado, para que no dé un tirón.
-  const se = document.scrollingElement || document.documentElement;
-  const scrollable = se.scrollHeight - innerHeight;
-  if(scrollable > 0) scrollTo(0, progress * scrollable);
+  // Ya no hay barra de scroll que resincronizar: el progreso es la única fuente de
+  // verdad, así que al devolver el control se sigue exactamente desde donde quedó.
   targetProgress = progress;
   speedHint.classList.remove('hide');
   cineIdx = -1;
@@ -2513,7 +2505,6 @@ function iniciarAterrizaje(){
   if(mode !== 'free') return;
   mode = 'landing'; landT = 0;
   SND.puerta();                      // el hangar de llegada abre al aproximarse
-  docEl.style.overflow = 'hidden';   // a partir de aquí manda la secuencia, no la rueda
   speedHint.classList.add('hide');
   setActiveWaypoint(-1);             // fuera el panel de sección, llega el de contacto
   launchStatus.textContent = 'Aproximación final';
@@ -2568,8 +2559,7 @@ function reiniciarRecorrido(){
   startOpciones.hidden = false;      // la elección de sonido vuelve a estar disponible
   void startOverlay.offsetWidth;     // fuerza reflow: sin esto la transición no rearranca
   startOverlay.classList.remove('out');
-  docEl.style.overflow = 'hidden';
-  scrollTo(0, 0);
+  routeInput.reset();
   speedHint.classList.remove('hide');
 }
 // stopPropagation, igual que el botón de silencio: sin esto el click burbujea hasta
@@ -2581,30 +2571,33 @@ document.getElementById('restartBtn').addEventListener('click', e=>{
   reiniciarRecorrido();
 });
 
-// ── Scroll → progreso ──
+// ── Entrada → progreso ──
+// La rueda, el dedo y el teclado sólo pilotan en vuelo libre: durante portada,
+// despegue, cinemáticas y aterrizaje manda la secuencia.
 let targetProgress = 0, progress = 0;
-function updateProgressFromScroll(){
-  if(mode !== 'free'){ targetProgress = 0; return; }
-  const se = document.scrollingElement || document.documentElement;
-  const scrollable = se.scrollHeight - innerHeight;
-  targetProgress = scrollable>0 ? Math.min(1, Math.max(0, se.scrollTop/scrollable)) : 0;
-  if(targetProgress > 0.002) speedHint.classList.add('hide');
-}
-addEventListener('scroll', updateProgressFromScroll, {passive:true});
+const routeInput = createRouteInput({
+  isEnabled: ()=> mode === 'free',
+  onFirstMove: ()=> speedHint.classList.add('hide'),
+});
+const esTactil = matchMedia('(pointer: coarse)').matches;
+// La pista dice lo que hay que hacer en ESTE dispositivo: "scroll" y "ratón" no
+// significan nada en un móvil.
+speedHint.textContent = esTactil
+  ? 'Desliza hacia arriba para avanzar'
+  : 'Rueda o flechas para avanzar · Mueve el ratón para pilotar';
 
-// ── Parallax de ratón (y táctil, que antes no existía) ──
+// ── Parallax de ratón ──
 // Se guarda el valor objetivo y se suaviza en el bucle: el valor crudo del evento
 // da tirones cuando el ratón se mueve rápido.
+// Sólo ratón. Antes también escuchaba el dedo, y como el dedo es el que avanza, cada
+// deslizamiento hacía cabecear la cámara: era buena parte de lo "raro" en móvil. En
+// táctil la cámara se mece sola (ver el bucle), que da vida al plano sin robar el gesto.
 let mouseX = 0, mouseY = 0, mouseTX = 0, mouseTY = 0;
-addEventListener('mousemove', e=>{
+addEventListener('pointermove', e=>{
+  if(e.pointerType !== 'mouse') return;
   mouseTX = (e.clientX/innerWidth  - 0.5) * 2;
   mouseTY = (e.clientY/innerHeight - 0.5) * 2;
 });
-addEventListener('touchmove', e=>{
-  const t = e.touches[0]; if(!t) return;
-  mouseTX = (t.clientX/innerWidth  - 0.5) * 2;
-  mouseTY = (t.clientY/innerHeight - 0.5) * 2;
-}, {passive:true});
 
 const hudPct = document.getElementById('hudPct');
 const progressFill = document.getElementById('progressFill');
@@ -2687,6 +2680,19 @@ function animate(){
   mouseX += (mouseTX - mouseX) * smoothK(0.12, dt);
   mouseY += (mouseTY - mouseY) * smoothK(0.12, dt);
 
+  if(mode === 'free'){
+    targetProgress += routeInput.consume(dt);
+    if(targetProgress <= 0 || targetProgress >= 1){
+      targetProgress = THREE.MathUtils.clamp(targetProgress, 0, 1);
+      routeInput.stopMomentum();
+    }
+  }
+  if(esTactil){
+    // Vaivén lento en dos frecuencias no múltiplos: no se repite a la vista y deja la
+    // cámara viva sin que nadie la toque.
+    mouseTX = Math.sin(gt*0.31)*0.28 + Math.sin(gt*0.13)*0.12;
+    mouseTY = Math.sin(gt*0.23)*0.16;
+  }
   progress += (targetProgress - progress) * smoothK(0.08, dt);
   const tt = Math.min(0.999, progress);
   const dive = (mode === 'free') ? diveIntensity(tt) : 0;
@@ -3398,11 +3404,6 @@ function animate(){
   }
 }
 
-// El navegador restaura el scroll al recargar; sin esto la página podía arrancar a
-// mitad de recorrido con el progreso interno todavía en 0.
-if('scrollRestoration' in history) history.scrollRestoration = 'manual';
-scrollTo(0,0);
-updateProgressFromScroll();
 animate();
 
 
@@ -3412,5 +3413,4 @@ addEventListener('resize', ()=>{
   renderer.setPixelRatio(Math.min(devicePixelRatio, Q.maxDpr)); // al mover la ventana
   renderer.setSize(innerWidth, innerHeight);                    // entre pantallas el
   if(composer) composer.setSize(innerWidth, innerHeight);        // DPR cambia
-  updateProgressFromScroll();
 });
