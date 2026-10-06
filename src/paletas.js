@@ -54,4 +54,54 @@ export const PALETAS = {
 export const BIOMA_SECCION = ['experiencia', 'skills', 'proyectos', 'formacion'];
 
 const pedida = new URLSearchParams(location.search).get('paleta');
-export const PALETA_ACTIVA = PALETAS[pedida] ? pedida : 'vibrante';
+export const PALETA_ACTIVA = PALETAS[pedida] ? pedida : 'caramelo';
+
+// ── Ajuste del kit de modelos ─────────────────────────────────────────────────
+// Todos los modelos del kit (nave, cazas, rocas, estación…) toman su color de UNA misma
+// textura: un atlas de cuadritos de 16 px. Reescribiéndola se recolorea el kit entero de
+// forma coherente con los planetas, sin tocar modelo a modelo.
+// Se conserva el TONO de cada color (la nave sigue naranja, los cazas rosas) y se
+// mueven luz y saturación hacia la paleta elegida:
+//   luz        [mín, máx]: el rango de luminosidad al que se reescala la original. Subir
+//              el mínimo es lo que quita los negros duros de los cascos.
+//   saturacion multiplicador.
+//   gris       los colores sin apenas saturación (los grises del casco) se tiñen con
+//              este tono suave, en vez de quedarse en un gris neutro que no pega con nada.
+export const AJUSTE_KIT = {
+  caramelo: { luz: [0.30, 0.90], saturacion: 0.72, gris: { tono: 0.70, saturacion: 0.14 } },
+  vibrante: null,     // sin ajuste: los colores originales del kit
+};
+
+// Reescribe una imagen (el atlas) y devuelve un canvas. Se hace una sola vez al cargar.
+export function ajustarAtlas(imagen, ajuste) {
+  const c = document.createElement('canvas');
+  c.width = imagen.width; c.height = imagen.height;
+  const cx = c.getContext('2d', { willReadFrequently: true });
+  cx.drawImage(imagen, 0, 0);
+  const datos = cx.getImageData(0, 0, c.width, c.height);
+  const p = datos.data;
+  for (let i = 0; i < p.length; i += 4) {
+    let [h, s, l] = rgbAHsl(p[i] / 255, p[i + 1] / 255, p[i + 2] / 255);
+    if (s < 0.12) { h = ajuste.gris.tono; s = ajuste.gris.saturacion; }
+    else s = Math.min(1, s * ajuste.saturacion);
+    l = ajuste.luz[0] + l * (ajuste.luz[1] - ajuste.luz[0]);
+    const [r, g, b] = hslARgb(h, s, l);
+    p[i] = r * 255; p[i + 1] = g * 255; p[i + 2] = b * 255;
+  }
+  cx.putImageData(datos, 0, 0);
+  return c;
+}
+
+function rgbAHsl(r, g, b) {
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), l = (max + min) / 2;
+  if (max === min) return [0, 0, l];
+  const d = max - min, s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+  const h = max === r ? (g - b) / d + (g < b ? 6 : 0) : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  return [h / 6, s, l];
+}
+function hslARgb(h, s, l) {
+  if (s === 0) return [l, l, l];
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s, p = 2 * l - q;
+  const f = t => { t = (t + 1) % 1; return t < 1 / 6 ? p + (q - p) * 6 * t : t < 1 / 2 ? q : t < 2 / 3 ? p + (q - p) * (2 / 3 - t) * 6 : p; };
+  return [f(h + 1 / 3), f(h), f(h - 1 / 3)];
+}

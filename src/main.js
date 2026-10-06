@@ -13,7 +13,7 @@ import { createRouteInput } from './input.js';
 import { createDirector } from './director.js';
 import { guionCombate, guionAgujero } from './guiones.js';
 import { crearPlaneta } from './planetas.js';
-import { PALETAS, PALETA_ACTIVA, BIOMA_SECCION } from './paletas.js';
+import { PALETAS, PALETA_ACTIVA, BIOMA_SECCION, AJUSTE_KIT, ajustarAtlas } from './paletas.js';
 
 // Mapa nombre → URL final de cada modelo. Vite copia cada .glb al build con un hash
 // de su contenido en el nombre (spaceship-3f9a1c.glb). Si un modelo cambia, cambia su
@@ -82,6 +82,27 @@ const loadManager = new THREE.LoadingManager();
 const gltfLoader = new GLTFLoader(loadManager).setMeshoptDecoder(MeshoptDecoder);
 const _modelCache = {};
 const _modelPending = {};
+// El atlas de colores del kit se reescribe UNA vez con el ajuste de la paleta activa y
+// se comparte entre todos los modelos (cada .glb trae su copia de la misma imagen).
+// Se hace sobre el modelo en caché, antes de clonarlo: los clones comparten material,
+// así que lo heredan también los materiales que el código clona después.
+let atlasKit = null;
+function recolorearKit(raiz){
+  const ajuste = AJUSTE_KIT[PALETA_ACTIVA];
+  if(!ajuste) return;
+  raiz.traverse(o=>{
+    if(!o.isMesh) return;
+    for(const m of [].concat(o.material)){
+      if(!m.map || m.name !== 'Atlas' || !m.map.image) continue;
+      if(!atlasKit){
+        atlasKit = new THREE.CanvasTexture(ajustarAtlas(m.map.image, ajuste));
+        for(const k of ['flipY','colorSpace','magFilter','minFilter','wrapS','wrapT','generateMipmaps']) atlasKit[k] = m.map[k];
+      }
+      m.map = atlasKit;
+      m.needsUpdate = true;
+    }
+  });
+}
 function getModel(name, cb){
   if(_modelCache[name]){ cb(_modelCache[name].clone(true)); return; }
   // Si ya hay una carga en vuelo para este modelo, engancharse a ella. Sin esto, dos
@@ -101,6 +122,7 @@ function getModel(name, cb){
     flush(null); return;
   }
   gltfLoader.load(url, gltf=>{
+    recolorearKit(gltf.scene);
     _modelCache[name] = gltf.scene;
     flush(gltf.scene);
   }, undefined, err=>{
@@ -685,7 +707,9 @@ const RESTOS_PIEZAS = [
       // Metal quemado: se parte del material de la pieza y se oscurece y ensucia. Una
       // pieza de estación limpia flotando en el vacío no dice "aquí hubo un combate".
       const mat = baked.mat.clone();
-      mat.color = new THREE.Color(0x6a7078);
+      // Con la paleta caramelo el atlas ya es claro: multiplicarlo por el gris oscuro de
+      // antes (0x6a7078) dejaba la chatarra casi negra, desentonando con todo lo demás.
+      mat.color = new THREE.Color(AJUSTE_KIT[PALETA_ACTIVA] ? 0xa8a4b8 : 0x6a7078);
       mat.metalness = 0.72; mat.roughness = 0.62;
       const inst = new THREE.InstancedMesh(baked.geo, mat, N);
       inst.frustumCulled = false;
