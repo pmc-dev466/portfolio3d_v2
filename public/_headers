@@ -9,8 +9,9 @@
   X-Frame-Options: SAMEORIGIN
   Permissions-Policy: geolocation=(), microphone=(), camera=(), payment=(), usb=()
   # CSP ajustada a lo que la página HACE de verdad:
-  #   'unsafe-inline' en script-src es OBLIGATORIO aquí: el <script type="importmap">
-  #     es un script en línea, y los importmaps no admiten nonce ni hash en la práctica.
+  #   script-src SIN 'unsafe-inline': desde la migración a Vite ya no hay importmap ni
+  #     ningún script en línea (comprobado en dist/index.html), así que sólo se ejecuta
+  #     JS servido desde el propio origen. Es la mitad de la protección contra XSS.
   #   'unsafe-inline' en style-src: todo el CSS va embebido en <style> y además el
   #     código escribe estilos en línea (opacidades de los overlays, transformaciones).
   #   data: en img-src y font-src: el favicon es un SVG data URI y varias texturas se
@@ -21,7 +22,7 @@
   #     con fetch, así que caen en connect-src y NO en img-src. Sin blob: aquí, los 20
   #     modelos cargan su geometría pero se quedan sin textura y la consola escupe
   #     "Couldn't load texture blob:...". Nada externo: blob: es del propio origen.
-  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' blob:; worker-src 'self' blob:; media-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'self'
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' blob:; worker-src 'self' blob:; media-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'self'
 
 # ── Caché ─────────────────────────────────────────────────────────────────────
 # El HTML NO se cachea: es lo que apunta a todo lo demás, y en cada despliegue debe
@@ -31,17 +32,9 @@
 /index.html
   Cache-Control: public, max-age=0, must-revalidate
 
-# app.js cambia en cada despliegue y no lleva hash en el nombre, así que tampoco puede
-# cachearse de forma inmutable. Se revalida siempre; Cloudflare responderá 304 si no
-# ha cambiado, que cuesta unos pocos bytes.
-/app.js
-  Cache-Control: public, max-age=0, must-revalidate
-
-# Modelos, fuentes y three.js son inmutables de facto: si alguno cambiara habría que
-# renombrarlo. Un año de caché y sin revalidar.
+# Todo lo que genera Vite va a /assets/ con un hash de su contenido en el nombre
+# (index-MpwZ53Ys.js, spaceship-BDvPghMl.glb). Si algo cambia, cambia su URL, así que
+# un año de caché sin revalidar es seguro POR CONSTRUCCIÓN: nunca se sirve una versión
+# vieja. Antes los modelos tenían nombre fijo y esta misma regla era un riesgo.
 /assets/*
-  Cache-Control: public, max-age=31536000, immutable
-/fonts/*
-  Cache-Control: public, max-age=31536000, immutable
-/vendor/*
   Cache-Control: public, max-age=31536000, immutable

@@ -1,6 +1,19 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+// Las fuentes se importan desde aquí y no con un <link> en el HTML: así Vite las
+// empaqueta con hash en el nombre y se pueden cachear un año sin riesgo.
+import './fonts/fonts.css';
+
+// Mapa nombre → URL final de cada modelo. Vite copia cada .glb al build con un hash
+// de su contenido en el nombre (spaceship-3f9a1c.glb). Si un modelo cambia, cambia su
+// URL, así que la caché de un año nunca puede servir una versión vieja. Con rutas
+// fijas, cualquier retoque a un modelo dejaba a los visitantes recurrentes con el
+// antiguo hasta un año.
+const MODELOS = Object.fromEntries(
+  Object.entries(import.meta.glob('./models/*.glb', { query:'?url', import:'default', eager:true }))
+    .map(([ruta, url]) => [ruta.slice(9, -4), url])          // "./models/x.glb" → "x"
+);
 // El postprocesado ya no se importa aquí arriba: se carga bajo demanda sólo si el
 // preset activa bloom (ver más abajo). Así, con bloom apagado, esos 6 ficheros ni
 // se descargan.
@@ -40,7 +53,7 @@ const smoothK = (rate, dt)=> 1 - Math.pow(1 - rate, dt*60);
 const smoothstep01 = x=>{ x = x<0?0:(x>1?1:x); return x*x*(3-2*x); };
 
 
-// ── Carga de modelos desde assets/ ──
+// ── Carga de modelos ──
 // Antes iban incrustados en base64 dentro del HTML para que funcionara con doble
 // clic. Al desplegar en GitHub Pages hay servidor HTTP de verdad, así que se sirven
 // como binarios: 139KB menos (base64 ocupa un 33% más) y el navegador los cachea por
@@ -56,7 +69,7 @@ if(location.protocol === 'file:'){
 
 // El LoadingManager permite enseñar progreso real antes de dejar despegar.
 const loadManager = new THREE.LoadingManager();
-const gltfLoader = new GLTFLoader(loadManager).setPath('assets/');
+const gltfLoader = new GLTFLoader(loadManager);
 const _modelCache = {};
 const _modelPending = {};
 function getModel(name, cb){
@@ -70,12 +83,19 @@ function getModel(name, cb){
     const queue = _modelPending[name]; delete _modelPending[name];
     queue.forEach(fn=> fn(result ? result.clone(true) : null));
   };
-  gltfLoader.load(name + '.glb', gltf=>{
+  const url = MODELOS[name];
+  if(!url){
+    // Nombre mal escrito en el código: fallo de desarrollo, se dice alto y claro.
+    console.error('Modelo desconocido:', name);
+    assetError(`⚠ Modelo desconocido <b>${name}</b>`);
+    flush(null); return;
+  }
+  gltfLoader.load(url, gltf=>{
     _modelCache[name] = gltf.scene;
     flush(gltf.scene);
   }, undefined, err=>{
     console.warn('No se pudo cargar', name, err);
-    assetError(`⚠ No se pudo cargar <b>assets/${name}.glb</b>`);
+    assetError(`⚠ No se pudo cargar <b>${name}.glb</b>`);
     flush(null);
   });
 }

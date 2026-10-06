@@ -4,12 +4,11 @@
 .claude/
 .remember/
 
-# ── Dependencias ──────────────────────────────────────────────────────────────
-# El proyecto NO tiene dependencias en tiempo de ejecución (three.js va vendorizado
-# en vendor/three/, que SÍ se versiona a propósito). Esta regla existe sólo por si
-# algún día se añade herramienta de desarrollo.
+# ── Dependencias y build ────────────────────────────────────────────────────────
+# package-lock.json SÍ se versiona: es lo que garantiza que Cloudflare instale
+# exactamente las mismas versiones que en local.
 node_modules/
-package-lock.json
+dist/
 
 # ── Restos de trabajo ─────────────────────────────────────────────────────────
 *.bak

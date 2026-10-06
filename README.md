@@ -6,30 +6,24 @@ cinturón de asteroides con disparo automático, un combate guionizado contra tr
 agujero negro que funciona como salto espacial, una estación abandonada y un aterrizaje
 final con los datos de contacto.
 
-Hecho con **three.js**, sin framework, **sin paso de compilación** y **sin una sola petición
-a terceros**.
+Hecho con **three.js** y **Vite**, sin framework y **sin una sola petición a terceros**.
 
 ---
 
 ## Cómo se ejecuta en local
 
-Hace falta un servidor HTTP: los modelos y el propio `app.js` se cargan por `fetch`, y el
-protocolo `file://` lo bloquea. Abrir el `index.html` con doble clic **no funciona** (la
-propia página te avisa si lo intentas).
-
 ```bash
+npm install
 npm run dev
 ```
 
-Levanta un servidor estático en `http://localhost:5173`. Si el puerto está ocupado busca el
-siguiente libre. Para forzar uno concreto:
+Levanta Vite en `http://localhost:5173` con recarga en caliente. Para comprobar el build de
+producción tal cual se despliega:
 
 ```bash
-npm run dev -- 8080
+npm run build
+npm run preview
 ```
-
-No hay `npm install`: el proyecto no tiene dependencias. `three.js` va incluido en
-`vendor/three/`.
 
 ### Niveles de calidad
 
@@ -47,13 +41,12 @@ query string:
 ## Estructura
 
 ```
-index.html          Shell: CSS embebido, overlays del DOM, importmap
-app.js              La aplicación entera (módulo ES, ~168 KB)
-assets/             20 modelos .glb (2,2 MB)
-fonts/              8 fuentes woff2 autoalojadas + fonts.css (308 KB)
-vendor/three/       three.js r0.160 + addons (857 KB)
-_headers            Cabeceras de caché y seguridad para Cloudflare Pages
-dev-server.mjs      Servidor estático, sólo para desarrollo
+index.html          Shell: CSS embebido y overlays del DOM
+src/main.js         La aplicación
+src/models/         Modelos .glb — Vite les pone hash en el nombre al construir
+src/fonts/          Fuentes woff2 autoalojadas + fonts.css
+public/_headers     Cabeceras de caché y seguridad para Cloudflare Pages
+vite.config.js      three.js va en su propio chunk, separado de la app
 ```
 
 ### Decisiones que conviene conocer antes de tocar nada
@@ -87,15 +80,18 @@ El repositorio se conecta directamente: no hay nada que compilar.
    | Campo | Valor |
    |---|---|
    | Framework preset | `None` |
-   | Build command | *(vacío)* |
-   | Build output directory | `/` |
+   | Build command | `npm run build` |
+   | Build output directory | `dist` |
    | Root directory | *(vacío)* |
 
 4. **Save and Deploy.**
 
-El fichero `_headers` lo recoge Cloudflare automáticamente y aplica la CSP, las cabeceras de
-seguridad y la política de caché (un año para `assets/`, `fonts/` y `vendor/`, que son
-inmutables; revalidación siempre para `index.html` y `app.js`, que cambian en cada despliegue).
+`public/_headers` acaba en la raíz de `dist/` y Cloudflare lo aplica solo: CSP sin
+`unsafe-inline` en scripts, cabeceras de seguridad y caché. Todo lo que genera Vite lleva un
+hash en el nombre, así que `/assets/*` se cachea un año sin riesgo de servir versiones
+viejas; `index.html` se revalida siempre.
+
+La versión de Node la fija `.node-version`.
 
 No hace falta `_redirects`: esto es una única página, no una SPA con rutas.
 
