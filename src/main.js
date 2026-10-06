@@ -1,5 +1,8 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+// Los modelos van comprimidos con meshopt (scripts/optimize-models.mjs): 1.9 MB → 541 KB.
+// El decodificador es WebAssembly, por eso la CSP lleva 'wasm-unsafe-eval'.
+import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 // Las fuentes se importan desde aquí y no con un <link> en el HTML: así Vite las
 // empaqueta con hash en el nombre y se pueden cachear un año sin riesgo.
@@ -70,7 +73,7 @@ if(location.protocol === 'file:'){
 
 // El LoadingManager permite enseñar progreso real antes de dejar despegar.
 const loadManager = new THREE.LoadingManager();
-const gltfLoader = new GLTFLoader(loadManager);
+const gltfLoader = new GLTFLoader(loadManager).setMeshoptDecoder(MeshoptDecoder);
 const _modelCache = {};
 const _modelPending = {};
 function getModel(name, cb){
@@ -123,11 +126,27 @@ function normalizeModel(mesh, targetSize){
 // salen ~100 veces más pequeños de lo pedido (los asteroides eran motas invisibles).
 // Aquí horneamos matrixWorld en la geometría y la normalizamos a 1 unidad, de modo
 // que la escala por instancia pase a significar unidades de mundo reales.
+// Los modelos llegan CUANTIZADOS: posiciones, normales y UV como enteros de 8-16 bits
+// normalizados, con la escala real guardada en la transformación del nodo. Para
+// pintarlos tal cual da igual, pero bakedGeometry hornea esa transformación en la
+// propia geometría, y escribir valores fuera de [-1, 1] en un atributo normalizado
+// los RECORTA: todas las rocas y planetas quedarían aplastados en un cubo de lado 2.
+// Por eso, antes de hornear, cada atributo entero se pasa a float32.
+function aFlotante(geo){
+  for(const [nombre, a] of Object.entries(geo.attributes)){
+    if(a.array instanceof Float32Array) continue;
+    const n = a.itemSize, out = new Float32Array(a.count * n);
+    const get = [a.getX, a.getY, a.getZ, a.getW];        // getX… ya desnormalizan
+    for(let i=0;i<a.count;i++) for(let k=0;k<n;k++) out[i*n+k] = get[k].call(a, i);
+    geo.setAttribute(nombre, new THREE.BufferAttribute(out, n));
+  }
+  return geo;
+}
 function bakedGeometry(root){
   root.updateWorldMatrix(true,true);
   let geo = null, mat = null;
   root.traverse(c=>{
-    if(c.isMesh && !geo){ geo = c.geometry.clone(); geo.applyMatrix4(c.matrixWorld); mat = c.material; }
+    if(c.isMesh && !geo){ geo = aFlotante(c.geometry.clone()); geo.applyMatrix4(c.matrixWorld); mat = c.material; }
   });
   if(!geo) return null;
   geo.computeBoundingBox();

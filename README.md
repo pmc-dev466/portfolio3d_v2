@@ -43,13 +43,21 @@ query string:
 ```
 index.html          Shell: CSS embebido y overlays del DOM
 src/main.js         La aplicación
-src/models/         Modelos .glb — Vite les pone hash en el nombre al construir
+src/models/         Modelos optimizados (generados, no se editan a mano)
+assets-src/models/  Modelos originales — la fuente de verdad
+scripts/            optimize-models.mjs: assets-src → src/models (npm run models)
+tests/              Pruebas de la entrada táctil, rueda y teclado (npm test)
 src/fonts/          Fuentes woff2 autoalojadas + fonts.css
 public/_headers     Cabeceras de caché y seguridad para Cloudflare Pages
 vite.config.js      three.js va en su propio chunk, separado de la app
 ```
 
 ### Decisiones que conviene conocer antes de tocar nada
+
+- **Modelos comprimidos con meshopt** (1,9 MB → 541 KB). Si cambias o añades uno, ponlo en
+  `assets-src/models/` y ejecuta `npm run models`; nunca edites `src/models/` a mano.
+  Van cuantizados: si hornear transformaciones en la geometría, pásala antes a float32
+  (`aFlotante()` en main.js) o los valores se recortan a ±1.
 
 - **Sin postprocesado.** Se quitó el bloom a propósito: `EffectComposer` renderiza a un
   render target sin `samples`, lo que **desactiva silenciosamente el MSAA 4x del lienzo**.

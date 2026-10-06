@@ -22,7 +22,7 @@
   #     con fetch, así que caen en connect-src y NO en img-src. Sin blob: aquí, los 20
   #     modelos cargan su geometría pero se quedan sin textura y la consola escupe
   #     "Couldn't load texture blob:...". Nada externo: blob: es del propio origen.
-  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' blob:; worker-src 'self' blob:; media-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'self'
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' blob:; worker-src 'self' blob:; media-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'self'
 
 # ── Caché ─────────────────────────────────────────────────────────────────────
 # El HTML NO se cachea: es lo que apunta a todo lo demás, y en cada despliegue debe
