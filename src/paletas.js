@@ -1,0 +1,57 @@
+// ── Paletas de los planetas ───────────────────────────────────────────────────
+// Un único sitio para los colores del mundo. Cada planeta tiene un bioma propio y
+// reconocible; las dos paletas son el mismo diseño con distinto carácter:
+//   vibrante  colores saturados y contrastados, a lo No Man's Sky
+//   caramelo  más claros y suaves, a lo Astroneer
+// La que se usa la fija PALETA_ACTIVA (y se puede forzar con ?paleta= para comparar).
+//
+// nivelMar: altura (0-1) por debajo de la cual hay agua. Más alto = más océano.
+// nubosidad: umbral del ruido de nubes. Más alto = menos nubes.
+
+export const PALETAS = {
+  vibrante: {
+    // 01 · Experiencia — desierto de cañones con algún lago.
+    experiencia: { oceanoProfundo: 0x0d6e8a, oceano: 0x1fc4d6, arena: 0xffe2a0, tierra: 0xffa040,
+      tierraAlta: 0xe8603a, roca: 0x9a3a2e, nieve: 0xfff1d6, atmosfera: 0xffa35c, nubes: 0xfff3e2,
+      nivelMar: 0.38, nubosidad: 0.66 },
+    // 02 · Skills — archipiélago tropical.
+    skills: { oceanoProfundo: 0x0b3fa8, oceano: 0x22c6e0, arena: 0xfff09a, tierra: 0x3fd776,
+      tierraAlta: 0x1a9a55, roca: 0x3f6a58, nieve: 0xffffff, atmosfera: 0x5fe6ff, nubes: 0xffffff,
+      nivelMar: 0.56, nubosidad: 0.66 },
+    // 03 · Proyectos — mundo helado con mares violeta.
+    proyectos: { oceanoProfundo: 0x2a1e8c, oceano: 0x5a52ff, arena: 0xbfe6ff, tierra: 0x8fd3ff,
+      tierraAlta: 0xd8f2ff, roca: 0x6f86ff, nieve: 0xffffff, atmosfera: 0x8fb4ff, nubes: 0xe8f4ff,
+      nivelMar: 0.47, nubosidad: 0.68 },
+    // 04 · Formación — mundo alienígena de vegetación magenta.
+    formacion: { oceanoProfundo: 0x26145a, oceano: 0x6a3cff, arena: 0xffd0ec, tierra: 0xff5cb2,
+      tierraAlta: 0xc23a96, roca: 0x6a2a7a, nieve: 0xffe6f6, atmosfera: 0xff86d6, nubes: 0xfff0fa,
+      nivelMar: 0.5, nubosidad: 0.6 },
+    // Planeta del picado — el "hogar": océanos, selva y nubes.
+    hogar: { oceanoProfundo: 0x0f4fbf, oceano: 0x23b6ee, arena: 0xffe48a, tierra: 0x5ad65a,
+      tierraAlta: 0x2a9a3c, roca: 0x7a6a55, nieve: 0xffffff, atmosfera: 0x7fd4ff, nubes: 0xffffff,
+      nivelMar: 0.52, nubosidad: 0.65 },
+  },
+  caramelo: {
+    experiencia: { oceanoProfundo: 0x4fa3b8, oceano: 0x8fe0e6, arena: 0xfff0cc, tierra: 0xffc48a,
+      tierraAlta: 0xf29a7a, roca: 0xc97a6e, nieve: 0xfffaf0, atmosfera: 0xffd0a8, nubes: 0xffffff,
+      nivelMar: 0.38, nubosidad: 0.66 },
+    skills: { oceanoProfundo: 0x4f86d6, oceano: 0x8fe4f0, arena: 0xfff6c2, tierra: 0x9be8b0,
+      tierraAlta: 0x5fc48a, roca: 0x8fae9e, nieve: 0xffffff, atmosfera: 0xa8f0ff, nubes: 0xffffff,
+      nivelMar: 0.56, nubosidad: 0.66 },
+    proyectos: { oceanoProfundo: 0x7a74d6, oceano: 0xa9a4ff, arena: 0xe2f4ff, tierra: 0xc4e8ff,
+      tierraAlta: 0xeef9ff, roca: 0xa9b8ff, nieve: 0xffffff, atmosfera: 0xc2d4ff, nubes: 0xffffff,
+      nivelMar: 0.47, nubosidad: 0.68 },
+    formacion: { oceanoProfundo: 0x7e66b8, oceano: 0xb39cff, arena: 0xffe6f4, tierra: 0xffa8d6,
+      tierraAlta: 0xe88ac0, roca: 0xa87ab8, nieve: 0xfff4fb, atmosfera: 0xffc2e8, nubes: 0xffffff,
+      nivelMar: 0.5, nubosidad: 0.6 },
+    hogar: { oceanoProfundo: 0x5a8fe0, oceano: 0x8fd8f6, arena: 0xfff2c2, tierra: 0xa8eaa0,
+      tierraAlta: 0x6fcf7a, roca: 0xb3a48f, nieve: 0xffffff, atmosfera: 0xb4e6ff, nubes: 0xffffff,
+      nivelMar: 0.52, nubosidad: 0.65 },
+  },
+};
+
+// Planeta de cada sección, en el orden de WAYPOINTS (main.js).
+export const BIOMA_SECCION = ['experiencia', 'skills', 'proyectos', 'formacion'];
+
+const pedida = new URLSearchParams(location.search).get('paleta');
+export const PALETA_ACTIVA = PALETAS[pedida] ? pedida : 'vibrante';

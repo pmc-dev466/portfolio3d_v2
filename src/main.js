@@ -12,6 +12,8 @@ import '@fontsource/press-start-2p/latin-400.css';
 import { createRouteInput } from './input.js';
 import { createDirector } from './director.js';
 import { guionCombate, guionAgujero } from './guiones.js';
+import { crearPlaneta } from './planetas.js';
+import { PALETAS, PALETA_ACTIVA, BIOMA_SECCION } from './paletas.js';
 
 // Mapa nombre → URL final de cada modelo. Vite copia cada .glb al build con un hash
 // de su contenido en el nombre (spaceship-3f9a1c.glb). Si un modelo cambia, cambia su
@@ -42,9 +44,9 @@ const esMovil = matchMedia('(max-width: 820px), (pointer: coarse)').matches;
 const nivelPedido = new URLSearchParams(location.search).get('q');
 const NIVEL = ['alta','media','baja'].includes(nivelPedido) ? nivelPedido : (esMovil ? 'baja' : 'alta');
 const PRESETS = {
-  alta:  { maxDpr:1.8, sombras:true,  mapaSombra:2048, bloom:true,  rocas:[60,18], polvo:900, fugaces:20, trafico:8 },
-  media: { maxDpr:1.5, sombras:true,  mapaSombra:1024, bloom:true,  rocas:[40,12], polvo:550, fugaces:14, trafico:5 },
-  baja:  { maxDpr:1.0, sombras:false, mapaSombra:512,  bloom:false, rocas:[24, 8], polvo:320, fugaces:8,  trafico:3 },
+  alta:  { maxDpr:1.8, sombras:true,  mapaSombra:2048, bloom:true,  octavas:5, rocas:[60,18], polvo:900, fugaces:20, trafico:8 },
+  media: { maxDpr:1.5, sombras:true,  mapaSombra:1024, bloom:true,  octavas:4, rocas:[40,12], polvo:550, fugaces:14, trafico:5 },
+  baja:  { maxDpr:1.0, sombras:false, mapaSombra:512,  bloom:false, octavas:3, rocas:[24, 8], polvo:320, fugaces:8,  trafico:3 },
 };
 const Q = PRESETS[NIVEL];
 console.info(`[recorrido] calidad: ${NIVEL}`, Q);
@@ -498,7 +500,11 @@ scene.add(wpPlanetGroup);
 const waypointPlanets = [];
 const WORLD_UP_C = new THREE.Vector3(0,1,0);
 
-function placeWaypointPlanet(wp, i, geo, matBase){
+// Todos los planetas generados, para animar sus nubes en el bucle y poder cambiarles
+// la paleta en caliente (herramienta de desarrollo).
+const planetasProc = [];
+
+function placeWaypointPlanet(wp, i){
   const center  = curve.getPointAt(wp.t);
   const tangent = curve.getTangentAt(wp.t).normalize();
   const side    = new THREE.Vector3().crossVectors(tangent, WORLD_UP_C).normalize();
@@ -510,27 +516,14 @@ function placeWaypointPlanet(wp, i, geo, matBase){
     .addScaledVector(side, (radius + 16 + (i % 3) * 3) * dir)
     .addScaledVector(WORLD_UP_C, dir > 0 ? -4.5 : 5.5);
 
-  // planet.glb TRAE TEXTURA (material "Atlas" con baseColorTexture y UVs). Antes se
-  // descartaba y se pintaba un color plano con flatShading: por eso los planetas se
-  // veían como bolas facetadas sin detalle. Ahora se clona el material original y se
-  // TIÑE con el color de la sección — three multiplica la textura por `color`, así que
-  // se conserva el relieve y cada planeta mantiene su identidad cromática.
-  let mat;
-  if(matBase){
-    mat = matBase.clone();
-    mat.color = new THREE.Color(wp.accentHex);
-    mat.emissive = new THREE.Color(wp.accentHex);
-    mat.emissiveIntensity = 0.10;
-    mat.roughness = 0.9;
-    mat.metalness = 0.05;
-  }else{
-    mat = new THREE.MeshStandardMaterial({
-      color: wp.accentHex, emissive: wp.accentHex, emissiveIntensity: 0.16,
-      metalness: 0.1, roughness: 0.85, flatShading: true,
-    });
-  }
-  const mesh = new THREE.Mesh(geo || new THREE.IcosahedronGeometry(1, 2), mat);
-  mesh.scale.setScalar(radius);
+  const bioma = BIOMA_SECCION[i % BIOMA_SECCION.length];
+  const planeta = crearPlaneta({
+    radio: radius, paleta: PALETAS[PALETA_ACTIVA][bioma], semilla: 1.7 + i * 2.3, sol: SUN_DIR,
+    frecuencia: 1.15, relieve: 0.09, detalle: Q.octavas >= 5 ? 5 : 4, octavas: Q.octavas,
+  });
+  planeta.bioma = bioma;
+  planetasProc.push(planeta);
+  const mesh = planeta.grupo;
   mesh.position.copy(pos);
   wpPlanetGroup.add(mesh);
 
@@ -563,13 +556,7 @@ function placeWaypointPlanet(wp, i, geo, matBase){
 // UN PLANETA DISTINTO POR SECCIÓN. Antes las cuatro usaban el mismo modelo y por eso
 // se veían genéricas y repetidas: estábamos cargando sólo la variante base del kit,
 // que trae once planetas diferentes. Cada sección carga el suyo y se tiñe con su color.
-const PLANETAS_SECCION = ['planet_a', 'planet_b', 'planet_c', 'planet_d'];
-WAYPOINTS.forEach((wp, i)=>{
-  getModel(PLANETAS_SECCION[i % PLANETAS_SECCION.length], m=>{
-    const baked = m ? bakedGeometry(m) : null;
-    placeWaypointPlanet(wp, i, baked ? baked.geo : null, baked ? baked.mat : null);
-  });
-});
+WAYPOINTS.forEach((wp, i)=> placeWaypointPlanet(wp, i));
 
 // ── ZONA: campo de asteroides — modelos reales vía InstancedMesh ──
 // Una sola llamada de carga + una sola llamada de dibujo por tipo de roca,
@@ -975,37 +962,24 @@ getModel('astronaut', m=>{
 // modelo". El kit traía un planeta de verdad, con continentes y 10 688 triángulos, sin
 // usar: son 276 KB bien gastados porque es el plano estrella del viaje.
 let bigPlanet = null;
-getModel('planet_big', m=>{
-  if(!m) return;
+{
   const zone = ZONES[3];
   const midT = (zone.from+zone.to)/2;
-  // Mover el envoltorio, no el mesh: mover el mesh borraba el centrado.
-  // 100 unidades, no 46. Es el planeta hacia el que se pica, así que tiene que dominar
-  // el encuadre; a 46 y colocado de lado se quedaba en un objeto más del decorado.
-  bigPlanet = normalizeModel(m, 100);
-  // Fuera de la niebla. Está en la zona más densa del recorrido (0.030) y a 50-80
-  // unidades: medido, el 96 % de su color era niebla, así que se veía como una bola
-  // plana sin continentes — justo cuando es el plano protagonista del picado. El "aire"
-  // de la entrada atmosférica lo pone el cielo, que ahora toma el color de la niebla.
-  bigPlanet.traverse(c=>{ if(c.isMesh){ c.material = c.material.clone(); c.material.fog = false; } });
-  // Posición RESUELTA POR BÚSQUEDA, no puesta a ojo. El problema de fondo era que el
-  // offset anterior (-34,-52,-16) dejaba el planeta a casi 90° de la dirección de vista
-  // durante todo el picado: medido, la NDC de su centro se iba a (-478, -1192) y sólo
-  // estaba en cuadro el 69% del tramo. O sea, la nave picaba, la cámara temblaba con la
-  // entrada atmosférica... y no había ningún planeta delante. Por eso la sacudida se
-  // leía como un fallo y no como drama: no tenía causa visible.
-  //
-  // El offset de abajo se obtuvo barriendo posiciones (distancia, lateral, vertical
-  // respecto al marco de la vista en el centro del picado) y quedándose con la que
-  // cumple las tres condiciones a la vez, comprobadas cada 0.005 de t:
-  //   · en cuadro el 100% del picado (|NDC| < 0.95, no sólo delante de la cámara),
-  //   · ocupa el 76% del alto de pantalla de media y hasta el 91% en el punto álgido,
-  //   · holgura mínima de 36 unidades contra TODA la ruta de la cámara incluyendo el
-  //     vaivén del ratón (±2.2 lateral, ±1.2 vertical), y ≥38 contra la estación, el
-  //     astronauta y el planeta-hito de Formación.
+  // Radio 48, el mismo que tenía el modelo normalizado a 100 de diámetro: la posición
+  // de abajo se calculó con ese tamaño (holgura ≥ 36 contra toda la ruta de la cámara).
+  // Sin niebla: está en la zona más densa y a 50-80 unidades quedaría lavado (medido:
+  // el 96 % de su color era niebla). Más detalle de malla porque llena la pantalla.
+  const planeta = crearPlaneta({
+    radio: 48, paleta: PALETAS[PALETA_ACTIVA].hogar, semilla: 4.2, sol: SUN_DIR,
+    frecuencia: 1.0, relieve: 0.035, detalle: Q.octavas >= 5 ? 6 : 5, octavas: Q.octavas,
+    niebla: false, intensidadAtmosfera: 1.9,
+  });
+  planeta.bioma = 'hogar';
+  planetasProc.push(planeta);
+  bigPlanet = planeta.grupo;
   bigPlanet.position.copy(curve.getPointAt(midT)).add(new THREE.Vector3(-17.2, -99.4, -47.6));
   scene.add(bigPlanet);
-});
+}
 
 // ── NAVE PROTAGONISTA (chase-cam) — modelo real ──
 // shipRoot es el objeto que el bucle de animación mueve/orienta cada frame;
@@ -3551,6 +3525,7 @@ function frame(dtReal){
                              * (pl.idx === activeIdx ? 1.9 : 1) * (1 - apagadoCine);
   }
   if(bigPlanet) bigPlanet.rotation.y += dt*0.02;
+  for(const p of planetasProc) p.actualizar(dt);
 
   // El HUD sólo se toca cuando cambia el entero: escribir en el DOM cada frame
   // fuerza recálculo de estilo 60 veces por segundo para nada.
@@ -3610,7 +3585,8 @@ if(import.meta.env.DEV){
       CINEMATICAS.forEach(c=> c.hecha = cines ? c.t < t - 0.01 : c.t <= t + 0.01);
     },
     sun, get bloomPass(){ return bloomPass; }, aplicarResolucion, factorTitulo, TITULO_CAM,
-    get bigPlanet(){ return bigPlanet; }, waypointPlanets, director, ctxCombate, ctxAgujero, enemigos, CINEMATICAS,
+    get bigPlanet(){ return bigPlanet; }, waypointPlanets, planetasProc,
+    cambiarPaleta(nombre){ for(const p of planetasProc) p.aplicarPaleta(PALETAS[nombre][p.bioma]); }, director, ctxCombate, ctxAgujero, enemigos, CINEMATICAS,
     avanzar(seg, paso = 1/60){ for(let s=0; s<seg; s+=paso) frame(paso); },
     captura(tipo = 'image/jpeg'){ dibujar(); return renderer.domElement.toDataURL(tipo, 0.88); },
   };

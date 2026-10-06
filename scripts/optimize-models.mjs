@@ -21,7 +21,8 @@ const SRC = 'assets-src/models';
 const OUT = 'src/models';
 
 // Modelos que NO van a la web. Se guardan como fuente por si se usan más adelante.
-const SKIP = new Set(['alien.glb']);
+// Los planetas del kit se sustituyeron por planetas generados por shader (src/planetas.js).
+const SKIP = new Set(['alien.glb', 'planet_a.glb', 'planet_b.glb', 'planet_c.glb', 'planet_d.glb', 'planet_big.glb']);
 // Animaciones a conservar por modelo. Lo que no aparezca aquí se queda sin animaciones:
 // el astronauta trae 18 (169 KB) y ahora mismo se muestra estático.
 const KEEP_ANIMATIONS = { 'astronaut.glb': [] };
