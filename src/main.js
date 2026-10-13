@@ -13,7 +13,7 @@ import { createRouteInput } from './input.js';
 import { createDirector } from './director.js';
 import { guionCombate, guionAgujero } from './guiones.js';
 import { crearPlaneta } from './planetas.js';
-import { PALETAS, PALETA_ACTIVA, BIOMA_SECCION, AJUSTE_KIT, ajustarAtlas } from './paletas.js';
+import { PALETAS, PALETA_ACTIVA, BIOMA_SECCION, AJUSTE_KIT, ajustarAtlas, ajustarColor, CIELOS } from './paletas.js';
 
 // Mapa nombre → URL final de cada modelo. Vite copia cada .glb al build con un hash
 // de su contenido en el nombre (spaceship-3f9a1c.glb). Si un modelo cambia, cambia su
@@ -49,6 +49,19 @@ const PRESETS = {
   baja:  { maxDpr:1.0, sombras:false, mapaSombra:512,  bloom:false, octavas:3, rocas:[24, 8], polvo:320, fugaces:8,  trafico:3 },
 };
 const Q = PRESETS[NIVEL];
+
+// Escenario construido en código (hangares, plataformas, puertas, tráfico) en la clave
+// de la paleta activa. `tono` aplica el mismo ajuste que al atlas del kit. `metal`
+// limita la metalicidad: a 0.8, con este entorno, cualquier color se veía gris oscuro, y
+// en la estética cartoon el color tiene que leerse.
+const AJUSTE_ESCENA = AJUSTE_KIT[PALETA_ACTIVA];
+const tono  = hex => ajustarColor(hex, AJUSTE_ESCENA);
+const metal = m => AJUSTE_ESCENA ? Math.min(m, 0.35) : m;
+// Variante PROFUNDA para las estructuras gigantes (la fachada del hangar de llegada mide
+// 236 × 126 unidades): con el tono normal quedaban gris claro y, ocupando media pantalla,
+// se leían como niebla plana. Más oscuras se recortan contra el cielo como estructura.
+const tonoProfundo = hex => AJUSTE_ESCENA ? ajustarColor(hex, { ...AJUSTE_ESCENA, luz: [0.12, 0.42] }) : hex;
+const tonoCss = hex => '#' + tono(hex).toString(16).padStart(6, '0');
 console.info(`[recorrido] calidad: ${NIVEL}`, Q);
 
 // ── Utilidades de interpolación ───────────────────────────────────────────────
@@ -231,11 +244,13 @@ const ZONES = [
   { name:'Estación derelicta', from:0.78, to:0.93, fog:0x0a1420, density:0.015 },
   { name:'Llegada', from:0.93, to:1.00, fog:0x030c14, density:0.010 },
 ];
+// Cielo de la paleta activa (si la paleta trae el suyo).
+if(CIELOS[PALETA_ACTIVA]) ZONES.forEach((z, i)=> z.fog = CIELOS[PALETA_ACTIVA].zonas[i] ?? z.fog);
 function zoneAt(p){ return ZONES.find(z=>p>=z.from && p<=z.to) || ZONES[ZONES.length-1]; }
 
 // ── Scene ──
 const scene = new THREE.Scene();
-scene.fog = new THREE.FogExp2(0x030c14, 0.010);
+scene.fog = new THREE.FogExp2(ZONES[0].fog, 0.010);
 // El cielo ES el color de la niebla: se comparte el mismo objeto Color, así que cuando
 // el bucle funde la niebla de una zona a otra, el fondo la sigue sin código extra.
 // Antes el fondo era negro fijo mientras la niebla se teñía de morado o azul. Todo lo
@@ -773,7 +788,7 @@ const nebulaGroup = new THREE.Group();
 const NEBULA_OPACIDAD = Q.bloom ? 0.32 : 0.42;
 {
   const zone = ZONES[2];
-  const cols = [0x9a4cff,0x3a5cff,0x2ee6c0,0xff5c8a];
+  const cols = CIELOS[PALETA_ACTIVA]?.nebulosa ?? [0x9a4cff,0x3a5cff,0x2ee6c0,0xff5c8a];
   const texCache = cols.map(c=>makeNebulaTexture(c)); // 4 texturas, no una por sprite
   const center = curve.getPointAt((zone.from+zone.to)/2);
   nebulaGroup.position.copy(center);
@@ -1505,8 +1520,8 @@ getModel('spaceship', m=>{
   const baked = bakedGeometry(m);
   if(!baked) return;
   const mat = new THREE.MeshStandardMaterial({
-    color:0x2a3b47, metalness:0.7, roughness:0.35,
-    emissive:0x0d1b24, emissiveIntensity:0.5,
+    color:tono(0x2a3b47), metalness:metal(0.7), roughness:0.35,
+    emissive:tono(0x0d1b24), emissiveIntensity:0.5,
   });
   trafficMesh = new THREE.InstancedMesh(baked.geo, mat, TRAFFIC_COUNT);
   trafficMesh.frustumCulled = false;
@@ -1540,7 +1555,7 @@ function construirPlataforma(pos, { radio = 7, color = 0xff6b4a, torres = true }
 
   const deck = new THREE.Mesh(
     new THREE.CylinderGeometry(radio, radio*1.2, 1.3, 32),
-    new THREE.MeshStandardMaterial({color:0x1b2c38, metalness:0.85, roughness:0.42})
+    new THREE.MeshStandardMaterial({color:tono(0x1b2c38), metalness:metal(0.85), roughness:0.42})
   );
   // La plataforma es la superficie donde de verdad se ve la sombra de la nave: en
   // espacio abierto no hay nada sobre lo que proyectar.
@@ -1590,8 +1605,8 @@ function construirPlataforma(pos, { radio = 7, color = 0xff6b4a, torres = true }
 function makeStripeTexture(){
   const c = document.createElement('canvas'); c.width = c.height = 64;
   const cx = c.getContext('2d');
-  cx.fillStyle = '#26313a'; cx.fillRect(0,0,64,64);
-  cx.fillStyle = '#c9962f';
+  cx.fillStyle = tonoCss(0x26313a); cx.fillRect(0,0,64,64);
+  cx.fillStyle = tonoCss(0xc9962f);
   for(let i=-64;i<64;i+=18){
     cx.beginPath();
     cx.moveTo(i,0); cx.lineTo(i+9,0); cx.lineTo(i+9+64,64); cx.lineTo(i+64,64);
@@ -1620,7 +1635,7 @@ function construirHangar({ bocaZ, dirInterior, sueloY, techoY, semiancho = 15,
   const Z0 = bocaZ, Z1 = bocaZ + dirInterior*profundidad;
   const cz = (Z0+Z1)/2, cy = (Y0+Y1)/2, alto = Y1-Y0, largo = profundidad;
 
-  const casco = new THREE.MeshStandardMaterial({ color:0x1b2730, metalness:0.75, roughness:0.55, side:THREE.DoubleSide });
+  const casco = new THREE.MeshStandardMaterial({ color:tono(0x1b2730), metalness:metal(0.75), roughness:0.55, side:THREE.DoubleSide });
   const panel = (w, h, pos, rot, mat)=>{
     const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), mat || casco);
     m.position.copy(pos); if(rot) m.rotation.copy(rot);
@@ -1636,7 +1651,7 @@ function construirHangar({ bocaZ, dirInterior, sueloY, techoY, semiancho = 15,
   panel(W*2, alto,  new THREE.Vector3(0, cy, Z1), new THREE.Euler(0, 0, 0));
 
   const costillaGeo = new THREE.BoxGeometry(0.7, alto, 0.7);
-  const costillaMat = new THREE.MeshStandardMaterial({ color:0x2c3d49, metalness:0.85, roughness:0.4 });
+  const costillaMat = new THREE.MeshStandardMaterial({ color:tono(0x2c3d49), metalness:metal(0.85), roughness:0.4 });
   const NC = 8;
   const costillas = new THREE.InstancedMesh(costillaGeo, costillaMat, NC*2);
   const d = new THREE.Object3D();
@@ -1666,7 +1681,7 @@ function construirHangar({ bocaZ, dirInterior, sueloY, techoY, semiancho = 15,
   // forma barata de "recortar" un agujero rectangular sin geometría booleana.
   const FW = 118, ARRIBA = Y1 + 60, ABAJO = Y0 - 66;
   const zf = Z0 - dirInterior*0.6;   // ligeramente por fuera de la boca
-  const fachadaMat = new THREE.MeshStandardMaterial({ color:0x1f2b34, metalness:0.8, roughness:0.5 });
+  const fachadaMat = new THREE.MeshStandardMaterial({ color:tonoProfundo(0x1f2b34), metalness:metal(0.8), roughness:0.5 });
   // CAJAS, no planos. Con planos la fachada era una lámina sin canto: de lejos se leía
   // como un rectángulo recortado flotando. Con 9 unidades de fondo hay silueta lateral
   // y las luces la modelan.
@@ -1687,7 +1702,7 @@ function construirHangar({ bocaZ, dirInterior, sueloY, techoY, semiancho = 15,
   const NB = 46;
   const bordes = new THREE.InstancedMesh(
     new THREE.BoxGeometry(1,1,1),
-    new THREE.MeshStandardMaterial({ color:0x22303a, metalness:0.8, roughness:0.5 }),
+    new THREE.MeshStandardMaterial({ color:tonoProfundo(0x22303a), metalness:metal(0.8), roughness:0.5 }),
     NB
   );
   const db = new THREE.Object3D();
@@ -1713,7 +1728,7 @@ function construirHangar({ bocaZ, dirInterior, sueloY, techoY, semiancho = 15,
   const NG = 260;
   const greebles = new THREE.InstancedMesh(
     new THREE.BoxGeometry(1,1,1),
-    new THREE.MeshStandardMaterial({ color:0x27333d, metalness:0.85, roughness:0.45 }),
+    new THREE.MeshStandardMaterial({ color:tono(0x27333d), metalness:metal(0.85), roughness:0.45 }),
     NG
   );
   for(let i=0;i<NG;i++){

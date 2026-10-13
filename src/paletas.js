@@ -56,6 +56,19 @@ export const BIOMA_SECCION = ['experiencia', 'skills', 'proyectos', 'formacion']
 const pedida = new URLSearchParams(location.search).get('paleta');
 export const PALETA_ACTIVA = PALETAS[pedida] ? pedida : 'caramelo';
 
+// ── Cielo por zona ──
+// Color del cielo (= niebla, ver main.js) en cada zona del recorrido, en el orden de
+// ZONES, y colores de la nebulosa. null = los originales (casi negros).
+// En caramelo el espacio deja de ser negro: índigo profundo, todavía oscuro para que
+// destaquen planetas y estrellas, y la entrada atmosférica se vuelve azul de verdad.
+export const CIELOS = {
+  caramelo: {
+    zonas: [0x161c3a, 0x1b1f3d, 0x2a2050, 0x3f5c8e, 0x1a2444, 0x161c3a],
+    nebulosa: [0xb48cff, 0x8ca4ff, 0x86e8d8, 0xff9cc6],
+  },
+  vibrante: null,
+};
+
 // ── Ajuste del kit de modelos ─────────────────────────────────────────────────
 // Todos los modelos del kit (nave, cazas, rocas, estación…) toman su color de UNA misma
 // textura: un atlas de cuadritos de 16 px. Reescribiéndola se recolorea el kit entero de
@@ -81,15 +94,28 @@ export function ajustarAtlas(imagen, ajuste) {
   const datos = cx.getImageData(0, 0, c.width, c.height);
   const p = datos.data;
   for (let i = 0; i < p.length; i += 4) {
-    let [h, s, l] = rgbAHsl(p[i] / 255, p[i + 1] / 255, p[i + 2] / 255);
-    if (s < 0.12) { h = ajuste.gris.tono; s = ajuste.gris.saturacion; }
-    else s = Math.min(1, s * ajuste.saturacion);
-    l = ajuste.luz[0] + l * (ajuste.luz[1] - ajuste.luz[0]);
-    const [r, g, b] = hslARgb(h, s, l);
+    const [r, g, b] = ajustarRGB(p[i] / 255, p[i + 1] / 255, p[i + 2] / 255, ajuste);
     p[i] = r * 255; p[i + 1] = g * 255; p[i + 2] = b * 255;
   }
   cx.putImageData(datos, 0, 0);
   return c;
+}
+
+// La misma transformación, para un color suelto (0xRRGGBB → 0xRRGGBB). La usa el
+// escenario construido en código (hangares, plataformas, puertas): así casa con el kit
+// sin elegir colores a mano uno por uno.
+export function ajustarColor(hex, ajuste) {
+  if (!ajuste) return hex;
+  const [r, g, b] = ajustarRGB(((hex >> 16) & 255) / 255, ((hex >> 8) & 255) / 255, (hex & 255) / 255, ajuste);
+  return (Math.round(r * 255) << 16) | (Math.round(g * 255) << 8) | Math.round(b * 255);
+}
+
+function ajustarRGB(r, g, b, ajuste) {
+  let [h, s, l] = rgbAHsl(r, g, b);
+  if (s < 0.12) { h = ajuste.gris.tono; s = ajuste.gris.saturacion; }
+  else s = Math.min(1, s * ajuste.saturacion);
+  l = ajuste.luz[0] + l * (ajuste.luz[1] - ajuste.luz[0]);
+  return hslARgb(h, s, l);
 }
 
 function rgbAHsl(r, g, b) {
