@@ -1353,6 +1353,7 @@ scene.add(boltMesh);
 
 const bolts = Array.from({length:BOLT_MAX}, ()=>({
   activo:false, origen:new THREE.Vector3(), destino:new THREE.Vector3(), t:0, dur:0.16, rock:null,
+  objetivo:null,    // caza al que persigue el rayo: su destino se actualiza cada frame
 }));
 
 // Devuelve false si los 4 huecos están ocupados: la roca no marca disparado y se
@@ -1369,7 +1370,7 @@ function dispararA(rock){
   // Mínimo 0.20s: por debajo de eso el proyectil cruza tan rápido que no da tiempo
   // ni a registrarlo mientras vuelas.
   b.dur = THREE.MathUtils.clamp(b.origen.distanceTo(b.destino)/85, 0.20, 0.40);
-  b.t = 0; b.activo = true; b.rock = rock;
+  b.t = 0; b.activo = true; b.rock = rock; b.objetivo = null;
   rock.disparado = true;
   // Fogonazo en el morro: es lo que hace que el disparo se LEA aunque el proyectil
   // cruce rápido. Sin él sólo hay un punto que sale de la nada.
@@ -2444,6 +2445,7 @@ function prepararCombate(){
       muerto:false,
       tDisparo: 0.14 + i*0.22,         // en unidades de u: devuelven fuego antes de caer
       haDisparado:false,
+      tiroLanzado:false,               // el rayo que lo derriba ya va en camino
     });
   }
 }
@@ -2458,7 +2460,7 @@ function fuegoEnemigo(e){
   b.destino.copy(ship.position)
     .addScaledVector(_cbR, (Math.random()-0.5)*11)
     .addScaledVector(_cbU, (Math.random()-0.5)*7);
-  b.dur = 0.34; b.t = 0; b.activo = true; b.rock = null;
+  b.dur = 0.34; b.t = 0; b.activo = true; b.rock = null; b.objetivo = null;
   SND.disparo();
 }
 
@@ -2466,6 +2468,11 @@ function fuegoEnemigo(e){
 // la curva, antes de que la nave se desplace persiguiendo. Tomar el marco de la ruta y
 // no de la nave rompe la dependencia circular (la nave persigue a los cazas y los
 // cazas se colocan respecto a la nave) que si no obligaría a ir un frame por detrás.
+// Antelación del disparo que derriba a cada caza, en unidades de u (×9.5 s = 0.24 s).
+// Con 0.025 sale justo después del corte a cada plano de derribo (0.27 / 0.59 / 0.89 en
+// guiones.js): el espectador ve el rayo entrar en cuadro y luego la explosión.
+const TIRO_ANTELACION = 0.025;
+
 function actualizarCombate(u, dur, dt, puntoRuta, tangenteRuta){
   _cbP.copy(puntoRuta);
   _cbF.copy(tangenteRuta).normalize();
@@ -2509,15 +2516,29 @@ function actualizarCombate(u, dur, dt, puntoRuta, tangenteRuta){
 
     if(!e.haDisparado && u >= e.tDisparo){ e.haDisparado = true; fuegoEnemigo(e); }
 
-    if(u >= e.plan.muere){
-      e.muerto = true;
+    // El rayo sale ANTES de `muere` y llega justo en `muere`. Antes salía en el mismo
+    // frame que la explosión: el caza reventaba y el disparo llegaba después, a la nada.
+    // La explosión sigue anclada a `muere` porque los planos de derribo del guion (y su
+    // cámara lenta) están cortados alrededor de ese instante. El rayo persigue al caza
+    // (`objetivo`) para no fallar mientras éste quiebra, y su `t` arranca con lo que
+    // `u` se haya pasado del umbral en este frame: así la llegada cae exacta en `muere`.
+    // cineT y b.t avanzan con el mismo dt escalado, así que la cámara lenta no lo desfasa.
+    if(!e.tiroLanzado && u >= e.plan.muere - TIRO_ANTELACION){
+      e.tiroLanzado = true;
       const b = bolts.find(x=>!x.activo);
       if(b){
         _tmp.set(0,0,-1.6).applyQuaternion(ship.quaternion).add(ship.position);
         b.origen.copy(_tmp); b.destino.copy(e.pos);
-        b.dur = 0.20; b.t = 0; b.activo = true; b.rock = null;
+        b.dur = TIRO_ANTELACION * dur;
+        // − dt: el bucle de rayos le suma dt otra vez en este mismo frame.
+        b.t = (u - (e.plan.muere - TIRO_ANTELACION)) * dur - dt;
+        b.activo = true; b.rock = null; b.objetivo = e;
         SND.disparo();
       }
+    }
+
+    if(u >= e.plan.muere){
+      e.muerto = true;
       // Mismas capas que al reventar una roca: núcleo, bola, onda y rescoldo. Un caza
       // no puede estallar con menos aparato que un pedrusco.
       destello(e.pos, { color:0xffffff, esc0:4.5, crece:34, dur:0.18, op:1 });
@@ -2558,7 +2579,7 @@ const ctxCombate = {
         .addScaledVector(_cbR, (n-1)*2.2 + (Math.random()-0.5))
         .addScaledVector(_cbU, 1.5 + Math.random())
         .addScaledVector(_cbF, -6);
-      b.dur = 0.42 + n*0.09; b.t = -n*0.12; b.activo = true; b.rock = null;
+      b.dur = 0.42 + n*0.09; b.t = -n*0.12; b.activo = true; b.rock = null; b.objetivo = null;
     }
     SND.disparo();
   },
@@ -2688,7 +2709,7 @@ function reiniciarRecorrido(){
     inst.userData.rocks?.forEach(r=>{ r.disparado = false; r.muerto = false; });
   });
   // Cortar disparos, destellos y escombros que quedaran a medias.
-  bolts.forEach(b=>{ b.activo = false; b.rock = null; });
+  bolts.forEach(b=>{ b.activo = false; b.rock = null; b.objetivo = null; });
   velIniciada = false;                // la nave vuelve al origen de un salto: sin esto
                                       // el roce de vuelo suena a fondo durante un frame
   ultimoDisparo = -99;                // si no, el primer derribo del nuevo recorrido
@@ -3360,6 +3381,7 @@ function frame(dtReal){
     const b = bolts[i], base = i*BOLT_PTS;
     if(b.activo){
       b.t += dt;
+      if(b.objetivo) b.destino.copy(b.objetivo.pos);
       const u = Math.min(1, b.t / b.dur);
       _p.lerpVectors(b.origen, b.destino, u);
       _tan.subVectors(b.destino, b.origen).normalize();
@@ -3376,7 +3398,7 @@ function frame(dtReal){
       }
       // b.rock es null en los rayos del combate: ahí la explosión la gestiona la
       // propia cinemática, no hay roca que reventar.
-      if(u >= 1){ b.activo = false; if(b.rock) explotarRoca(b.rock); }
+      if(u >= 1){ b.activo = false; b.objetivo = null; if(b.rock) explotarRoca(b.rock); }
     }else{
       for(let k=0;k<BOLT_PTS;k++){ const idx = base + k; boltSize[idx] = 0; boltFade[idx] = 0; }
     }

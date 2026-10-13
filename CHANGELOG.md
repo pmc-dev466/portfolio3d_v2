@@ -43,6 +43,8 @@ videojuego, y pesa bastante menos.
   desde lejos).
 - El planeta del picado se veía casi sólo niebla, como una bola sin modelo.
 - La nave salía fuera de cuadro en el combate.
+- En el combate los cazas explotaban antes de que les llegara el disparo. Ahora el rayo
+  sale antes, persigue al caza y lo alcanza en el fotograma exacto de la explosión.
 
 ### Despliegue
 - Cloudflare Pages debe usar *Build command* `npm run build` y *Build output directory*
