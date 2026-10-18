@@ -32,6 +32,7 @@ npm run preview
 |---|---|
 | Empezar | `K`, `Enter`, `Espacio` o click / toque en la portada |
 | Avanzar | rueda, flechas, `AvPág`/`RePág`, o arrastrar el dedo (con inercia) |
+| En móvil | piloto automático: vuela solo y para en cada sección; `Continuar` para seguir. Arrastrar el dedo toma el control y el piloto retoma a los 2,5 s |
 | Sonido | `M` (arranca siempre en silencio) |
 | Saltar la intro | click, tecla o rueda |
 
@@ -59,6 +60,7 @@ La paleta se puede forzar con `?paleta=caramelo` (por defecto) o `?paleta=vibran
 index.html          Shell: CSS embebido y overlays del DOM
 src/main.js         La aplicación: escena, recorrido y bucle
 src/input.js        Rueda, arrastre táctil con inercia y teclado
+src/autopilot.js    Piloto automático táctil: crucero, paradas por sección, cesión al dedo
 src/director.js     Director de cinemáticas: planos, cortes, cámara lenta, barras
 src/guiones.js      Guiones (listas de planos) del combate y del agujero negro
 src/planetas.js     Planetas generados por shader (ruido simplex, cartoon)

@@ -10,6 +10,7 @@ import './fonts/fonts.css';
 // Fuente píxel de la pantalla de título. Sólo el subconjunto latino (ñ, tildes): unos KB.
 import '@fontsource/press-start-2p/latin-400.css';
 import { createRouteInput } from './input.js';
+import { createAutopilot } from './autopilot.js';
 import { createDirector } from './director.js';
 import { guionCombate, guionAgujero } from './guiones.js';
 import { crearPlaneta } from './planetas.js';
@@ -260,6 +261,15 @@ scene.fog = new THREE.FogExp2(ZONES[0].fog, 0.010);
 scene.background = scene.fog.color;
 const camera = new THREE.PerspectiveCamera(56, innerWidth/innerHeight, 0.1, 2000);
 const BASE_FOV = 56;
+// En vertical (móvil) el campo horizontal se quedaba en ~27°: la nave, de 2.1 de lado,
+// llenaba el ancho entero y salía cortada por los dos lados. `zoom` < 1 abre el campo en
+// los dos ejes por igual, y como lo aplica updateProjectionMatrix vale también para los
+// planos del director sin tocar sus FOV. Se abre lo justo para ver el ancho de una
+// pantalla de proporción ASPECTO_REF; en horizontal (aspecto ≥ 0.8) no cambia nada.
+const ASPECTO_REF = 0.8;
+const ajustarZoomVertical = ()=>{ camera.zoom = Math.min(1, camera.aspect / ASPECTO_REF); };
+ajustarZoomVertical();
+camera.updateProjectionMatrix();
 const director = createDirector({ camera, baseFov: BASE_FOV });
 // ── Comprobación de WebGL ANTES de construir nada ──
 // Sin esto, en un navegador sin WebGL (GPU en lista negra, aceleración desactivada,
@@ -1856,6 +1866,7 @@ const panelBody = document.getElementById('panelBody');
 let activeIdx = -1;
 function renderPanel(wp){
   let html = `<span class="ptag">${wp.tag}</span><div class="ptitle">${wp.title}</div>`;
+  panelBody.scrollTop = 0;   // cada sección empieza arriba, no donde se dejó la anterior
   if(wp.stats) html += `<div class="tags" style="margin-bottom:.8rem">` + wp.stats.map(s=>`<span class="tag">${s.n} ${s.l}</span>`).join('') + `</div>`;
   if(wp.items) wp.items.forEach(it=> html += `<div class="pi"><div class="pit">${it.t}</div><div class="pis">${it.s}</div><div class="pid">${it.d}</div></div>`);
   if(wp.tags) html += `<div class="tags">` + wp.tags.map(t=>`<span class="tag">${t}</span>`).join('') + `</div>`;
@@ -1865,6 +1876,8 @@ function setActiveWaypoint(idx){
   if(idx === activeIdx) return;
   if(idx >= 0) SND.seccion();       // aviso al entrar en una sección
   activeIdx = idx;
+  // En táctil la pista de abajo queda debajo de la hoja: fuera en cuanto hay sección.
+  if(idx >= 0 && esTactil) speedHint.classList.add('hide');
   if(idx<0){ infoPanel.classList.remove('on'); }
   else{ renderPanel(WAYPOINTS[idx]); infoPanel.classList.add('on'); }
   wlEls.forEach((el,i)=> el.classList.toggle('active', i===idx));
@@ -2732,6 +2745,7 @@ function reiniciarRecorrido(){
   void startOverlay.offsetWidth;     // fuerza reflow: sin esto la transición no rearranca
   startOverlay.classList.remove('out');
   routeInput.reset();
+  autopiloto?.reset();
   speedHint.classList.remove('hide');
 }
 // stopPropagation, igual que el botón de silencio: sin esto el click burbujea hasta
@@ -2755,8 +2769,20 @@ const esTactil = matchMedia('(pointer: coarse)').matches;
 // La pista dice lo que hay que hacer en ESTE dispositivo: "scroll" y "ratón" no
 // significan nada en un móvil.
 speedHint.textContent = esTactil
-  ? 'Desliza hacia arriba para avanzar'
+  ? 'Piloto automático · desliza para pilotar tú'
   : 'Rueda o flechas para avanzar · Mueve el ratón para pilotar';
+
+// Piloto automático, sólo en táctil (ver autopilot.js). En escritorio la rueda ya es
+// cómoda y el usuario lee con el ratón en la mano: ahí no se toca nada.
+const autopiloto = esTactil ? createAutopilot({ paradas: WAYPOINTS.map(w=>w.t) }) : null;
+const pContinuar = document.getElementById('pContinuar');
+pContinuar.hidden = !autopiloto;
+pContinuar.addEventListener('click', e=>{
+  e.stopPropagation();
+  autopiloto?.continuar(activeIdx);
+  SND.blip();
+});
+let paradoPintado = false;
 
 // ── Parallax de ratón ──
 // Se guarda el valor objetivo y se suaviza en el bucle: el valor crudo del evento
@@ -2852,6 +2878,9 @@ let apagadoCine = 0;        // 0 → 1 mientras hay cinemática (apaga halos de 
 // Tiempo de simulación: suma de los dt ESCALADOS. Las oscilaciones (balanceos, parpadeos)
 // lo usan, así que en cámara lenta también van despacio, como debe ser.
 let tiempoSim = 0;
+// Fracción del alto que sube la imagen con la hoja de sección abierta (en vertical).
+const DESP_HOJA = 0.3;
+let desplazamiento = 0, despAplicado = 0;
 
 function animate(){
   requestAnimationFrame(animate);
@@ -2877,7 +2906,9 @@ function frame(dtReal){
   mouseY += (mouseTY - mouseY) * smoothK(0.12, dt);
 
   if(mode === 'free'){
-    targetProgress += routeInput.consume(dt);
+    const gesto = routeInput.consume(dt);
+    targetProgress += gesto;
+    if(autopiloto) targetProgress = autopiloto.update(dt, targetProgress, progress, gesto !== 0 || routeInput.activo);
     if(targetProgress <= 0 || targetProgress >= 1){
       targetProgress = THREE.MathUtils.clamp(targetProgress, 0, 1);
       routeInput.stopMomentum();
@@ -3196,7 +3227,9 @@ function frame(dtReal){
   trailGeo.attributes.position.needsUpdate = true;
   trailGeo.attributes.aSize.needsUpdate = true;
   trailMat.uniforms.uThrust.value = thrust * (1 + dive*0.6);
-  const escalaPx = renderer.domElement.height / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2));
+  // × zoom: en vertical el campo se abre con camera.zoom (ver ASPECTO_REF) y los puntos
+  // tienen que encoger en la misma proporción que todo lo demás.
+  const escalaPx = renderer.domElement.height * camera.zoom / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2));
   trailMat.uniforms.uScale.value = escalaPx;
   trailMat.uniforms.uMaxPx.value = renderer.domElement.height * 0.07;
   humoMat.uniforms.uScale.value  = escalaPx;
@@ -3597,6 +3630,27 @@ function frame(dtReal){
     progressFill.style.height = pct + '%';
   }
 
+  // ── Hoja de sección en vertical ──
+  // La hoja ocupa la mitad de abajo, que es justo donde va la nave en la cámara de
+  // persecución: la tapaba. Se sube la IMAGEN con setViewOffset, que sólo desplaza la
+  // ventana de proyección (cámara, encuadre y lógica intactos), lo justo para que la nave
+  // caiga en el hueco libre de arriba. Se aplica sólo cuando cambia: cada llamada
+  // recalcula la matriz de proyección.
+  // Ojo: setViewOffset también REESCRIBE camera.aspect con ancho/alto completos. Por eso
+  // se le pasan las medidas reales de la ventana (con 1×1 dejaba el aspecto en 1 y la
+  // escena se deformaba), y "vertical" se decide con la ventana, no con la cámara.
+  const despObjetivo = (activeIdx >= 0 && innerHeight > innerWidth) ? DESP_HOJA : 0;
+  desplazamiento += (despObjetivo - desplazamiento) * smoothK(0.1, dtReal);
+  if(despObjetivo === 0 && desplazamiento < 1e-3) desplazamiento = 0;
+  if(desplazamiento !== despAplicado){
+    despAplicado = desplazamiento;
+    if(desplazamiento === 0) camera.clearViewOffset();
+    else camera.setViewOffset(innerWidth, innerHeight, 0, desplazamiento*innerHeight, innerWidth, innerHeight);
+  }
+  // El botón «Continuar» se enciende cuando la nave está esperando en la sección.
+  const parado = autopiloto?.estado === 'parado';
+  if(parado !== paradoPintado){ paradoPintado = parado; infoPanel.classList.toggle('esperando', parado); }
+
   dibujar();
 
   // Medidor (sólo con ?debug o pulsando D). Se lee DESPUÉS de dibujar porque
@@ -3648,6 +3702,7 @@ if(import.meta.env.DEV){
     sun, get bloomPass(){ return bloomPass; }, aplicarResolucion, factorTitulo, TITULO_CAM,
     get bigPlanet(){ return bigPlanet; }, waypointPlanets, planetasProc,
     cambiarPaleta(nombre){ for(const p of planetasProc) p.aplicarPaleta(PALETAS[nombre][p.bioma]); }, director, ctxCombate, ctxAgujero, enemigos, CINEMATICAS,
+    autopiloto,
     avanzar(seg, paso = 1/60){ for(let s=0; s<seg; s+=paso) frame(paso); },
     captura(tipo = 'image/jpeg'){ dibujar(); return renderer.domElement.toDataURL(tipo, 0.88); },
   };
@@ -3657,7 +3712,9 @@ if(import.meta.env.DEV){
 
 addEventListener('resize', ()=>{
   camera.aspect = innerWidth/innerHeight;
+  ajustarZoomVertical();
   camera.updateProjectionMatrix();
+  despAplicado = -1;   // el desplazamiento de la hoja va en píxeles: rehacerlo con las medidas nuevas
   // Respeta el modo píxel de la portada (y recalcula su factor: depende del alto).
   // Se decide por el ESTADO (¿seguimos en la portada?), no por el factor anterior: si
   // éste se hubiera calculado mal una vez, se arrastraría para siempre.

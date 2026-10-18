@@ -3,6 +3,22 @@
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones
 según [SemVer](https://semver.org/lang/es/).
 
+## [2.1.0] — 2026-10-18
+
+Móvil: se deja de pelear con el gesto y los paneles ya no tapan la nave.
+
+### Añadido
+- **Piloto automático en táctil**: la nave vuela sola entre secciones y se para en cada
+  una hasta pulsar «Continuar». Arrastrar el dedo toma el control; al soltar, el piloto
+  retoma a los 2,5 s (si te deja en una sección, se queda parado en ella).
+
+### Cambiado
+- **Hoja inferior en vertical**: el panel de sección va pegado abajo a todo el ancho, con
+  el texto desplazable y el botón siempre visible. Mientras está abierto, la imagen sube
+  para que la nave quede en el hueco libre de arriba en vez de debajo del panel.
+- **Encuadre en vertical**: se abre el campo de visión para que la nave quepa entera (antes
+  llenaba el ancho y salía cortada). También mejora las cinemáticas en vertical.
+
 ## [2.0.0] — 2026-10-13
 
 Versión 2: el portfolio pasa de "escena 3D con scroll" a algo que se siente como un
@@ -56,4 +72,5 @@ Primera versión publicada: recorrido en nave por las secciones del portfolio, i
 Star Wars, cinturón de asteroides, combate, agujero negro, estación abandonada y
 aterrizaje final con los datos de contacto.
 
+[2.1.0]: https://github.com/pmc-dev466/portfolio3d_v2/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/pmc-dev466/portfolio3d_v2/compare/0577a18...v2.0.0

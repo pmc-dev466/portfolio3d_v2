@@ -101,6 +101,9 @@ export function createRouteInput({ isEnabled, onFirstMove }) {
   addEventListener('keydown', onKey);
 
   return {
+    // Hay un dedo apoyado o la nave aún planea por la inercia del último gesto. El
+    // piloto automático lo usa para apartarse mientras el usuario manda.
+    get activo() { return touchId !== null || velocity !== 0; },
     // Devuelve cuánto avanzar en este frame, incluida la inercia.
     consume(dt) {
       if (!isEnabled()) { pending = 0; velocity = 0; return 0; }
