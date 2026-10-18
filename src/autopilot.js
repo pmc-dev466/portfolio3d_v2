@@ -16,7 +16,8 @@
 export function createAutopilot({
   paradas,                 // progreso (0-1) de cada sección, en orden
   velocidad = 0.012,       // progreso/s de crucero: ~13 s entre secciones contiguas
-  aceleracion = 1.4,       // segundos para llegar a crucero al arrancar
+  aceleracion = 0.8,       // segundos para llegar a crucero al arrancar. Con 1.4 la salida
+                           // tras «Continuar» era tan suave que parecía que no arrancaba
   reanudarTras = 2.5,      // segundos sin tocar tras los que el piloto retoma
   radio = 0.045,           // distancia a la que una sección cuenta como "aquí"
 }) {

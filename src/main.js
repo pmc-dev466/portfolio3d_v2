@@ -42,6 +42,10 @@ const MODELOS = Object.fromEntries(
 //     MSAA real, o sea que los bordes MEJORAN al quitarlo.
 //  3. La web de referencia no usa postprocesado en absoluto.
 const esMovil = matchMedia('(max-width: 820px), (pointer: coarse)').matches;
+// Dispositivo de DEDO: sin ratón (hover: none) y con puntero grueso. Sólo `pointer:
+// coarse` no basta: lo cumplen portátiles con pantalla táctil, que tienen ratón y deben
+// comportarse como escritorio (salía el piloto automático y su botón en un PC).
+const ES_TACTIL = matchMedia('(hover: none) and (pointer: coarse)').matches;
 const nivelPedido = new URLSearchParams(location.search).get('q');
 const NIVEL = ['alta','media','baja'].includes(nivelPedido) ? nivelPedido : (esMovil ? 'baja' : 'alta');
 const PRESETS = {
@@ -2150,9 +2154,7 @@ let assetsReady = false;
 const loadPct = document.getElementById('loadPct');
 const tiPulsa = document.getElementById('tiPulsa');
 const tiSonido = document.getElementById('tiSonido');
-// Se lee aquí y no se reutiliza `esTactil` (declarada más abajo): usarla antes de su
-// declaración rompería por la zona muerta temporal.
-const TEXTO_PULSA = matchMedia('(pointer: coarse)').matches ? 'Toca para continuar' : 'Pulsa K para continuar';
+const TEXTO_PULSA = ES_TACTIL ? 'Toca para continuar' : 'Pulsa K para continuar';
 loadManager.onProgress = (_url, cargados, total)=>{
   if(loadPct) loadPct.textContent = Math.round((cargados/total)*100) + '%';
 };
@@ -2746,6 +2748,7 @@ function reiniciarRecorrido(){
   startOverlay.classList.remove('out');
   routeInput.reset();
   autopiloto?.reset();
+  seccionCerrada = -1;
   speedHint.classList.remove('hide');
 }
 // stopPropagation, igual que el botón de silencio: sin esto el click burbujea hasta
@@ -2765,7 +2768,7 @@ const routeInput = createRouteInput({
   isEnabled: ()=> mode === 'free',
   onFirstMove: ()=> speedHint.classList.add('hide'),
 });
-const esTactil = matchMedia('(pointer: coarse)').matches;
+const esTactil = ES_TACTIL;
 // La pista dice lo que hay que hacer en ESTE dispositivo: "scroll" y "ratón" no
 // significan nada en un móvil.
 speedHint.textContent = esTactil
@@ -2779,9 +2782,16 @@ const pContinuar = document.getElementById('pContinuar');
 pContinuar.hidden = !autopiloto;
 pContinuar.addEventListener('click', e=>{
   e.stopPropagation();
+  if(activeIdx < 0) return;
+  // La hoja se cierra YA. Antes seguía abierta hasta que la nave se alejaba de la
+  // sección (4-5 s, con el arranque suave): en el móvil parecía que el botón no hacía nada.
+  seccionCerrada = activeIdx;
   autopiloto?.continuar(activeIdx);
   SND.blip();
 });
+// Sección cuya hoja se ha cerrado con «Continuar»: no se vuelve a abrir mientras la nave
+// sigue dentro de su radio. Se olvida al salir de él o si el dedo toma el control.
+let seccionCerrada = -1;
 let paradoPintado = false;
 
 // ── Parallax de ratón ──
@@ -3601,7 +3611,8 @@ function frame(dtReal){
     const d = Math.abs(WAYPOINTS[i].t - tt);
     if(d < closestDist){ closestDist = d; closest = i; }
   }
-  setActiveWaypoint(mode === 'free' ? closest : -1);
+  if(closest !== seccionCerrada || autopiloto?.estado === 'manual') seccionCerrada = -1;
+  setActiveWaypoint(mode === 'free' && closest !== seccionCerrada ? closest : -1);
 
   // Los halos y anillos de los planetas-sección son señales de navegación pensadas para la
   // cámara de vuelo. Vistos desde las cámaras laterales de una cinemática se convertían en
